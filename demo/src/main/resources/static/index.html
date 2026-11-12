@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>Google Docs TCP/WebSocket</title>
+</head>
+<body style="font-family: Arial; display: flex; gap: 20px; padding: 20px;">
+
+    <!-- LADO ESQUERDO: EDITOR DE DOCUMENTOS -->
+    <div style="flex: 2;">
+        <h2>Editor de Documentos</h2>
+        Arquivo: <input id="nomeDoc" value="projeto_tcc.txt">
+        <button onclick="abrirDoc()">Abrir</button>
+        <button onclick="salvarDoc()">Salvar no Servidor</button>
+        <span id="status" style="color: green; margin-left: 10px;"></span>
+        <br><br>
+        <textarea id="editor" style="width: 100%; height: 350px; padding: 10px;"></textarea>
+    </div>
+
+    <!-- LADO DIREITO: SISTEMA DE MENSAGENS (CHAT) -->
+    <div style="flex: 1; border-left: 2px solid #ccc; padding-left: 20px;">
+        <h2>Chat Cliente-Servidor</h2>
+        <div id="chatBox" style="height: 300px; border: 1px solid #999; overflow-y: scroll; padding: 10px; margin-bottom: 10px;"></div>
+        <input id="inputMsg" placeholder="Digite sua mensagem..." style="width: 70%;">
+        <button onclick="enviarMsg()">Enviar</button>
+    </div>
+
+    <script>
+        const ws = new WebSocket("ws://localhost:8080/docs");
+
+        ws.onmessage = function(evento) {
+            const partes = evento.data.split("|");
+            const tipo = partes[0];
+
+            if (tipo === "MSG") {
+                const chatBox = document.getElementById("chatBox");
+                chatBox.innerHTML += "<p><b>Mensagem:</b> " + partes.slice(1).join("|") + "</p>";
+            } 
+            else if (tipo === "OK") {
+                document.getElementById("editor").value = partes.slice(1).join("|");
+                document.getElementById("status").innerText = "Documento carregado!";
+            } 
+            else if (tipo === "ATUALIZAR") {
+                document.getElementById("editor").value = partes.slice(2).join("|");
+                document.getElementById("status").innerText = "Salvo e sincronizado!";
+            }
+        };
+
+        function enviarMsg() {
+            const texto = document.getElementById("inputMsg").value;
+            ws.send("MSG|" + texto);
+            document.getElementById("inputMsg").value = "";
+        }
+
+        function abrirDoc() {
+            const nome = document.getElementById("nomeDoc").value;
+            ws.send("ABRIR|" + nome + "|");
+        }
+
+        function salvarDoc() {
+            const nome = document.getElementById("nomeDoc").value;
+            const conteudo = document.getElementById("editor").value;
+            ws.send("SALVAR|" + nome + "|" + conteudo);
+        }
+    </script>
+</body>
+</html>
