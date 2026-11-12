@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f6f8fc">
+  <title>Cloud Storage</title>
+  <link rel="stylesheet" href="/assets/styles.css">
+  <script type="module" src="/assets/app.js"></script>
+</head>
+<body>
+  <div id="toast-region" class="toast-region" aria-live="polite" aria-atomic="true"></div>
+
+  <main id="auth-view" class="auth-shell">
+    <section class="auth-story">
+      <a class="brand brand-light" href="/" aria-label="Cloud Storage home">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 40 40" fill="none">
+            <path d="M12.6 29.2h15.2a7.3 7.3 0 0 0 .5-14.6 9 9 0 0 0-17.2 1.6 6.6 6.6 0 0 0 1.5 13Z" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="m15.7 21.9 4.2-4.2 4.3 4.2M20 18v9" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </span>
+        <span>Cloudspace</span>
+      </a>
+      <div class="story-copy">
+        <p class="eyebrow">YOUR FILES, IN ONE PLACE</p>
+        <h1>Room for the things you make.</h1>
+        <p>Keep your files together, find them when you need them, and bring your folders along.</p>
+      </div>
+      <div class="story-orbit orbit-one"></div>
+      <div class="story-orbit orbit-two"></div>
+      <div class="story-card" aria-hidden="true">
+        <div class="story-card-icon">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M5 3.8h9l5 5v11.4H5V3.8Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M14 4v5h5M8.5 13h7M8.5 16.5h7" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+        </div>
+        <div><strong>Everything in its place</strong><span>Files and folders, organized your way.</span></div>
+        <span class="story-card-check">✓</span>
+      </div>
+      <div class="story-dots" aria-hidden="true"></div>
+    </section>
+
+    <section class="auth-panel">
+      <div class="auth-panel-inner">
+        <div class="auth-mobile-brand">
+          <a class="brand" href="/">
+            <span class="brand-mark" aria-hidden="true">
+              <svg viewBox="0 0 40 40" fill="none"><path d="M12.6 29.2h15.2a7.3 7.3 0 0 0 .5-14.6 9 9 0 0 0-17.2 1.6 6.6 6.6 0 0 0 1.5 13Z" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/><path d="m15.7 21.9 4.2-4.2 4.3 4.2M20 18v9" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </span>
+            <span>Cloudspace</span>
+          </a>
+        </div>
+        <div class="auth-heading">
+          <span class="eyebrow" id="auth-eyebrow">WELCOME BACK</span>
+          <h2 id="auth-title">Sign in to your space</h2>
+          <p id="auth-description">Your files are right where you left them.</p>
+        </div>
+        <div class="auth-tabs" role="tablist" aria-label="Account access">
+          <button type="button" class="auth-tab is-active" data-auth-mode="login" role="tab" aria-selected="true">Sign in</button>
+          <button type="button" class="auth-tab" data-auth-mode="register" role="tab" aria-selected="false">Create account</button>
+        </div>
+        <form id="auth-form" class="auth-form">
+          <label class="field-label" for="auth-email">Email address</label>
+          <input id="auth-email" name="email" type="email" autocomplete="email" maxlength="320" placeholder="you@example.com" required>
+          <label class="field-label" for="auth-password">Password</label>
+          <input id="auth-password" name="password" type="password" autocomplete="current-password" maxlength="128" placeholder="Enter your password" required>
+          <p id="password-hint" class="field-hint" hidden>Use 12–128 characters for your new password.</p>
+          <button id="auth-submit" class="button button-primary button-wide" type="submit">Sign in</button>
+          <p class="auth-privacy">Your account is private. Only you can see your files.</p>
+        </form>
+      </div>
+      <footer class="auth-footer">Private storage for your everyday work.</footer>
+    </section>
+  </main>
+
+  <div id="app-view" class="app-shell" hidden>
+    <aside class="sidebar">
+      <a class="brand sidebar-brand" href="/" aria-label="Cloudspace home">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 40 40" fill="none"><path d="M12.6 29.2h15.2a7.3 7.3 0 0 0 .5-14.6 9 9 0 0 0-17.2 1.6 6.6 6.6 0 0 0 1.5 13Z" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/><path d="m15.7 21.9 4.2-4.2 4.3 4.2M20 18v9" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </span>
+        <span>Cloudspace</span>
+      </a>
+
+      <button id="nav-my-files" class="side-link is-selected" type="button">
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3.8 6.5A1.7 1.7 0 0 1 5.5 4.8h4l1.8 1.8h7.2a1.7 1.7 0 0 1 1.7 1.7v9.9a1.7 1.7 0 0 1-1.7 1.7H5.5a1.7 1.7 0 0 1-1.7-1.7V6.5Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
+        <span>My files</span>
+      </button>
+
+      <div class="sidebar-section-label">WORKSPACE</div>
+      <div class="sidebar-note">
+        <span class="sidebar-note-icon">✦</span>
+        <div><strong>Your private space</strong><span>Files are visible only to you.</span></div>
+      </div>
+
+      <div class="sidebar-bottom">
+        <div class="sidebar-storage">
+          <div class="storage-icon">
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 7.2A2.2 2.2 0 0 1 6.2 5h11.6A2.2 2.2 0 0 1 20 7.2v9.6a2.2 2.2 0 0 1-2.2 2.2H6.2A2.2 2.2 0 0 1 4 16.8V7.2Z" stroke="currentColor" stroke-width="1.7"/><path d="M4 9h16M16 14.5h.01" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+          </div>
+          <div><strong>Local storage</strong><span>Managed by your server</span></div>
+        </div>
+        <div class="account-row">
+          <span id="user-avatar" class="avatar">U</span>
+          <span id="user-email" class="account-email"></span>
+          <button id="logout-button" class="icon-button logout-button" type="button" title="Log out" aria-label="Log out">
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M10 5H6.5A1.5 1.5 0 0 0 5 6.5v11A1.5 1.5 0 0 0 6.5 19H10M15.5 16l4-4-4-4M19 12H9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+        </div>
+      </div>
+    </aside>
+
+    <main class="main-panel">
+      <header class="topbar">
+        <div class="breadcrumbs" id="breadcrumbs" aria-label="Folder location"></div>
+        <div class="topbar-right">
+          <span class="secure-label"><span class="secure-dot"></span>Private workspace</span>
+          <button id="mobile-logout" class="icon-button mobile-logout" type="button" aria-label="Log out" title="Log out">
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M10 5H6.5A1.5 1.5 0 0 0 5 6.5v11A1.5 1.5 0 0 0 6.5 19H10M15.5 16l4-4-4-4M19 12H9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+        </div>
+      </header>
+
+      <div id="drop-area" class="workspace-content">
+        <section class="page-heading">
+          <div>
+            <p class="eyebrow" id="page-eyebrow">YOUR WORKSPACE</p>
+            <h1 id="page-title">My files</h1>
+            <p id="page-description">Keep your work organized and easy to find.</p>
+          </div>
+          <div class="page-actions">
+            <button id="new-folder-button" class="button button-secondary" type="button">
+              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3.8 7A1.8 1.8 0 0 1 5.6 5.2h4l1.8 1.8h7A1.8 1.8 0 0 1 20.2 8.8v8.6a1.8 1.8 0 0 1-1.8 1.8H5.6a1.8 1.8 0 0 1-1.8-1.8V7Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M12 10v5M9.5 12.5h5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+              New folder
+            </button>
+            <button id="upload-button" class="button button-primary" type="button">
+              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 15.5V4.8m0 0L8.3 8.5M12 4.8l3.7 3.7M5 14.5v3.7A1.8 1.8 0 0 0 6.8 20h10.4a1.8 1.8 0 0 0 1.8-1.8v-3.7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              Upload files
+            </button>
+            <input id="file-input" type="file" multiple hidden>
+          </div>
+        </section>
+
+        <section class="stats-grid" aria-label="Current folder overview">
+          <article class="stat-card">
+            <span class="stat-icon stat-icon-blue">
+              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3.8 6.5A1.7 1.7 0 0 1 5.5 4.8h4l1.8 1.8h7.2a1.7 1.7 0 0 1 1.7 1.7v9.9a1.7 1.7 0 0 1-1.7 1.7H5.5a1.7 1.7 0 0 1-1.7-1.7V6.5Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
+            </span>
+            <span class="stat-label">Folders here</span>
+            <strong id="folder-count" class="stat-value">0</strong>
+          </article>
+          <article class="stat-card">
+            <span class="stat-icon stat-icon-violet">
+              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 3.8h8l4 4v12.4H6V3.8Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M14 4v4h4M9 12h6M9 15.5h6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+            </span>
+            <span class="stat-label">Files here</span>
+            <strong id="file-count" class="stat-value">0</strong>
+          </article>
+          <article class="stat-card stat-card-wide">
+            <span class="stat-icon stat-icon-green">
+              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3.8v16.4M3.8 12h16.4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+            </span>
+            <span class="stat-label">Upload limit</span>
+            <strong class="stat-value">100 MB <small>per file</small></strong>
+          </article>
+        </section>
+
+        <section class="file-browser">
+          <div class="browser-toolbar">
+            <div class="browser-title">
+              <h2>Contents</h2>
+              <span id="contents-count" class="count-pill">0 items</span>
+            </div>
+            <label class="search-box">
+              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.8" stroke="currentColor" stroke-width="1.7"/><path d="m16 16 4.2 4.2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+              <input id="search-input" type="search" placeholder="Search this folder" autocomplete="off">
+              <span class="search-shortcut">⌘ K</span>
+            </label>
+          </div>
+
+          <section id="folders-section" class="folders-section" hidden>
+            <div class="section-heading">
+              <h3>Folders</h3>
+              <span id="folders-section-count" class="section-count"></span>
+            </div>
+            <div id="folder-grid" class="folder-grid"></div>
+          </section>
+
+          <div id="files-section" class="files-section">
+            <div class="section-heading file-section-heading">
+              <h3>Files</h3>
+              <span id="files-section-count" class="section-count"></span>
+            </div>
+            <div class="table-scroll">
+              <table class="file-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Name</th>
+                    <th scope="col">Size</th>
+                    <th scope="col">Last updated</th>
+                    <th scope="col"><span class="sr-only">Actions</span></th>
+                  </tr>
+                </thead>
+                <tbody id="file-table-body"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div id="empty-state" class="empty-state" hidden>
+            <div class="empty-illustration">
+              <svg viewBox="0 0 88 72" fill="none" aria-hidden="true">
+                <path d="M16 23.5h21l6.5 7H72a6 6 0 0 1 6 6v22a6 6 0 0 1-6 6H16a6 6 0 0 1-6-6v-29a6 6 0 0 1 6-6Z" fill="#EEF3FF" stroke="#BDD0FF" stroke-width="2"/>
+                <path d="M26 48.5a12.5 12.5 0 0 1 23.7-5.3 10.2 10.2 0 1 1 11.8 14.8H27.2A9.2 9.2 0 0 1 26 48.5Z" fill="white" stroke="#97B2F5" stroke-width="2"/>
+                <path d="m38 49 5-5 5 5m-5-5v12" stroke="#5279D8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </div>
+            <h3>This folder is ready for something</h3>
+            <p>Upload a file or create a folder to get started.</p>
+            <button class="button button-primary" type="button" data-empty-upload>Upload your first file</button>
+          </div>
+
+          <div id="loading-state" class="loading-state" hidden>
+            <span class="spinner"></span><span>Loading your files…</span>
+          </div>
+        </section>
+
+        <div id="drop-overlay" class="drop-overlay" hidden>
+          <div class="drop-overlay-card">
+            <span class="drop-upload-icon">↑</span>
+            <strong>Drop files to upload</strong>
+            <span>They’ll be added to this folder.</span>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <dialog id="action-dialog" class="action-dialog">
+    <form id="action-form" class="dialog-form">
+      <button id="dialog-close" class="icon-button dialog-close" type="button" aria-label="Close dialog">×</button>
+      <p class="eyebrow" id="dialog-eyebrow">WORKSPACE</p>
+      <h2 id="dialog-title">Create folder</h2>
+      <div id="dialog-fields" class="dialog-fields"></div>
+      <div class="dialog-actions">
+        <button id="dialog-cancel" class="button button-secondary" type="button">Cancel</button>
+        <button id="dialog-submit" class="button button-primary" type="submit">Save changes</button>
+      </div>
+    </form>
+  </dialog>
+</body>
+</html>

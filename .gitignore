@@ -1,0 +1,7 @@
+**/target/
+**/*.class
+/storage/
+/backend/storage/
+/backend/.tools/
+/backend/.local/
+.env
