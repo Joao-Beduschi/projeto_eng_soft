@@ -326,7 +326,8 @@ public final class DocsClient {
 
         HttpRequest request = HttpRequest.newBuilder(apiBase.resolve("/api/files/" + id + "/download"))
                 .timeout(REQUEST_TIMEOUT)
-                .header("Accept", "application/octet-stream")
+                // Downloads can have any MIME type, and errors are returned as JSON.
+                .header("Accept", "*/*")
                 .GET()
                 .build();
         HttpResponse<InputStream> response = http.send(
