@@ -2,7 +2,7 @@
 
 > **Purpose:** Self-contained context for a coding CLI agent or developer taking over this project.
 >
-> **Status date:** 2026-11-12. **Language:** English, with original Portuguese requirement IDs and Java identifiers preserved.
+> **Status date:** 2026-11-13. **Language:** English, with original Portuguese requirement IDs and Java identifiers preserved.
 >
 > **Priority of evidence:** (1) the academic requirements PDF for course scope; (2) `cloud_storage_backend_requirements_java_sql.md` for the later user-requested backend scope; (3) checked-out source and independently reproduced results; (4) proposed architecture. **Proposals are not implemented features.**
 
@@ -12,14 +12,14 @@
 2. The **mandatory deliverable** is a simple **file-sharing/cloud storage application**: upload an existing local file to a central server; persist it; list server-side files; download the original bytes on another computer. This is **not** a collaborative Google Docs editor.
 3. The current implementation is Java: a Spring Boot HTTP API with PostgreSQL and a same-origin browser interface, plus root Java HTTP client/launcher entrypoints. Preserve this stack unless the human explicitly requests a change.
 4. The later backend requirements and the user's follow-up requests expand scope beyond the academic PDF minimum to include accounts, folders, SQL metadata, Docker PostgreSQL and a browser UI.
-5. Treat **path traversal and arbitrary-file access as critical**. Do not expose the current server to the public internet. Fix path handling before broad deployment or untrusted clients.
+5. Treat **path traversal and arbitrary-file access as critical**. Do not expose a public hostname without Cloudflare Access (or an equivalent access gate), HTTPS cookies, and a restricted origin. A Cloudflare Tunnel by itself is a network path, not an application access policy.
 6. Preserve uploaded file bytes exactly through HTTP streaming and private server storage; never use text conversion or Base64 as the primary file representation.
 7. Distinguish **current facts** from **design suggestions**; record whether code was compiled, endpoints were checked, or full workflows/tests were run.
 8. When changing API or storage behavior, keep the backend, root Java client and browser interface aligned; add appropriate regression coverage.
 9. Avoid silently expanding scope. The PDF is authoritative about must-haves and non-required features.
 10. If this file is moved into a repository, compare its embedded source snapshot to the *actual* Java files: the repository may contain newer revisions. Treat the checked-out code as authoritative for its current state, and update this context accordingly.
 
-## 0.1 Later backend request and implementation status (2026-11-12)
+## 0.1 Later backend request and implementation status (2026-11-13)
 
 The user later requested a backend following `cloud_storage_backend_requirements_java_sql.md`. This explicitly expands the implementation task beyond the academic PDF's minimum and authorizes a Java SQL-backed HTTP API with accounts, ownership, folders, and file management. The user also requested integration with the root Java files and a web interface: `DocsServer.java` launches Spring Boot, `DocsClient.java` is an interactive HTTP client, and Spring Boot serves the browser app from the same origin. The old unauthenticated TCP text protocol has been removed from these entrypoints.
 
@@ -30,9 +30,10 @@ An initial backend module now exists under `backend/`:
 - Owner-scoped file upload/list/metadata/download/delete and rename/move endpoints; bytes stream to private UUID-keyed local storage, with size checks, SHA-256, pending/ready/deleting states, atomic writes and startup reconciliation.
 - Nested folder create/list/contents/rename/move/delete endpoints; nonempty deletion is rejected and cycles are checked while moves are serialized per owner.
 - Same-origin browser UI at `/` for registration/login, folder navigation, file upload/download/rename/move/delete, folder creation/rename/move/delete, search, and drag-and-drop uploads. It uses the backend session cookie and CSRF token endpoints.
+- Reverse-proxy compatibility: `server.forward-headers-strategy=framework` makes Spring process forwarded request headers. Exact-origin CORS remains configurable. This does not start or configure Cloudflare Tunnel; `cloudflared`, its hostname route, and Cloudflare Access policies are separate server/dashboard setup.
 - Integration test sources use Testcontainers and cover authentication/CSRF, byte integrity, owner isolation, incomplete uploads, folder rules and concurrent uploads.
 
-**Verification status (2026-11-12):** OpenJDK 21 and project-local Maven 3.10.0 are available. Docker Snap 29.8 and Compose 5.5.1 are active and accessible. The backend compiled and is running with Spring Boot on port 8080 against the Compose `postgres:16-alpine` service at `127.0.0.1:55432`; the named volume is `backend_postgres_data`. Flyway applied V1. The root page, `/assets/app.js`, `/assets/styles.css`, and `GET /api/auth/csrf` returned HTTP 200; unauthenticated `GET /api/users/me` returned HTTP 401. Integration tests and complete browser account/upload workflows have not been run. The former workspace PostgreSQL cluster is stopped; its database had zero users, folders and files before switching. Maven and its cache, plus the stopped local PostgreSQL cluster, live under ignored `backend/.tools/` and `backend/.local/`; credentials are in the ignored, mode-600 root `.env`; uploaded data is under ignored `storage/`. Do not copy credentials into this context document.
+**Verification status:** The backend compiled and its browser page, JavaScript/CSS assets, CSRF endpoint, and unauthenticated protected endpoint were checked on 2026-11-12. On 2026-11-13, the `WEBRat` changes were merged into GitHub `main`; the final source contains Spring forwarded-header support and an exact-origin CORS allow-list. `cloudflared` is not installed or configured by the repository, and no Cloudflare tunnel or Access policy has been started or verified. Integration tests and complete browser account/upload workflows have not been run. The project-local Maven cache and tools are ignored under `backend/.tools/` and `backend/.local/`; credentials belong in the ignored root `.env`; uploaded data is under ignored `storage/`. Do not copy credentials or tunnel tokens into this context document.
 
 The integrated root Java entrypoints were compiled with Java 21 into `backend/target/cli`; their interactive API workflow has not been exercised, and no test suite was run for this integration. The academic requirements/status tables and TCP protocol analysis below describe the **pre-integration socket demo baseline** and are historical; the current backend, root Java entrypoints and browser UI use the HTTP API.
 
@@ -44,7 +45,7 @@ The integrated root Java entrypoints were compiled with Java 21 into `backend/ta
 | `cloud_storage_backend_requirements_java_sql.md` | User-requested Java SQL HTTP backend specification | Backend implementation scope |
 | `DocsServer.java` | Java launcher for the Spring Boot backend | Integrated with project-local Maven and `.env`; compiled |
 | `DocsClient.java` | Interactive Java HTTP client for authenticated backend operations | Integrated with login/register and file/folder management; compiled, API workflow not run |
-| `backend/` | Spring Boot HTTP backend, same-origin web UI, SQL migration, local storage, API and integration test sources | Implemented, compiled and running against Docker Compose PostgreSQL; integration tests not run |
+| `backend/` | Spring Boot HTTP backend, same-origin web UI, SQL migration, local storage, API and integration test sources | Implemented; Compose currently runs PostgreSQL only. Spring proxy-header support exists; `cloudflared` and Cloudflare Access are external and not configured here |
 | This document | Consolidated analysis, architecture proposal, backlog, tests and exact Java source | Context and recommendations; not an implementation |
 
 Academic context: **Tópicos em Engenharia de Software**, UFSCar, document dated **25 September 2026**. The PDF identifies Prof. Dr. Delano Medeiros Beder as the responsible professor. The academic specification defines **16 functional requirements (RF001–RF016)** and **8 non-functional requirements (RNF001–RNF008)**.
@@ -52,7 +53,7 @@ Academic context: **Tópicos em Engenharia de Software**, UFSCar, document dated
 ### Source-of-truth boundaries
 
 - The specification states **what** is required; it does not prescribe Java, a database, HTTP, a cloud provider, or a web-only GUI.
-- The root Java files now launch and use the HTTP backend; the browser UI is served at `/`; historical TCP observations below are explicitly labeled as the previous implementation.
+- The root Java files now launch and use the HTTP backend; the browser UI is served at `/`; historical TCP observations below are explicitly labeled as the previous implementation. Cloudflare Tunnel is an external ingress process and is not launched by these Java files.
 - Test results below were reproduced independently on 2026-11-12 in a temporary directory with OpenJDK 21.
 - Designs labeled **Proposed** are options for future implementation, not descriptions of the existing code.
 
@@ -701,8 +702,10 @@ INPUTS: Doc_Req_Eng_Software.pdf; cloud_storage_backend_requirements_java_sql.md
 CURRENT BACKEND: Spring Boot 4.1.2 / Java 21; PostgreSQL JDBC + Flyway;
                  session auth + CSRF; owner-scoped file API; private UUID storage;
                  nested folder API; Compose PostgreSQL volume backend_postgres_data.
-BACKEND STATUS: compiled and running on port 8080 against Docker Compose;
-                Flyway V1 applied; GET /api/auth/csrf returned HTTP 200.
+BACKEND STATUS: previously compiled and checked on port 8080 against Docker Compose;
+                Flyway V1 applied; browser and CSRF routes returned HTTP 200.
+PROXY STATUS: Spring forwarded-header support is present; CORS is exact-origin;
+              cloudflared, Cloudflare Access, and a public hostname are not configured.
 JAVA ENTRYPOINTS: DocsServer launches the backend; DocsClient is an interactive
                   Java HTTP client with file/folder operations; both compile.
 TEST STATUS: backend integration tests and interactive client workflows not run.

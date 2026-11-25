@@ -186,6 +186,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
   box-shadow: 0 0 0 3px rgba(55,105,232,.12);
 }
 .field-hint { margin: -8px 0 14px; color: var(--muted); font-size: 11px; }
+.field-hint-error { color: #b42318; }
 .button {
   display: inline-flex;
   align-items: center;

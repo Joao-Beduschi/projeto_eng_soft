@@ -9,13 +9,14 @@ The root-level `DocsServer.java` and `DocsClient.java` are integrated with this 
 - Java 21, Spring Boot 4.1.2, PostgreSQL 15 or newer, JDBC with prepared statements, and Flyway migrations.
 - New accounts can register themselves. Passwords are stored using Spring Security's adaptive PBKDF2 encoder.
 - Authentication uses server-side HTTP sessions in application memory. Cookies are HttpOnly and SameSite=Lax by default; enable HTTPS and set `SESSION_COOKIE_SECURE=true` outside local development. Cross-site frontends may need `SESSION_COOKIE_SAME_SITE=none`, which requires secure cookies over HTTPS.
+- Spring is configured to honor forwarded request headers from a reverse proxy. This makes it proxy-aware; it does not install or start Cloudflare Tunnel. `cloudflared` is a separate process/service on the server.
 - State-changing requests require a CSRF token obtained from `GET /api/auth/csrf` and sent as `X-CSRF-TOKEN`. Fetch it again after logout/session renewal.
 - Files are stored on persistent local disk outside the application resources/static directory. Default root is `../storage` relative to the backend working directory.
 - Maximum file size is 100 MiB by default. Set `MAX_FILE_SIZE_BYTES`, `MAX_FILE_SIZE`, and `MAX_REQUEST_SIZE` together when changing the limit. Uploads also reserve against currently available disk space before streaming and handle disk-full errors without returning success.
 - Any file content type is accepted. Downloads are attachments with `nosniff`; MIME type is guessed from the display name, is informational, and is never used to choose a filesystem path.
 - Duplicate names are allowed within a folder. Each upload gets a separate ID.
 - Deleting a nonempty folder returns `409 Conflict`. Move operations reject direct and indirect cycles.
-- CORS is limited to `http://localhost:3000` and `http://localhost:5173` by default; set `CORS_ALLOWED_ORIGINS` to comma-separated exact frontend origins.
+- The browser UI and API use the same origin, so the normal browser interface does not need CORS. For a separately hosted frontend, set `CORS_ALLOWED_ORIGINS` to comma-separated exact origins; wildcard credentialed CORS is not enabled.
 - Sharing, public links, previews, versions, quotas and password recovery are out of scope.
 
 ## Run locally
@@ -57,13 +58,52 @@ The Spring Boot application serves the web interface and API from the same origi
 http://localhost:8080/
 ```
 
-Create an account or sign in, then upload/download files, create and navigate folders, rename or move items, delete items, and search the current folder. Files can also be uploaded by dropping them into the workspace. New accounts require a valid email and a password between 12 and 128 characters. The browser interface uses the same 100 MiB per-file limit as the API.
+Create an account or sign in, then upload/download files, create and navigate folders, rename or move items, delete items, and search the current folder. Files can also be uploaded by dropping them into the workspace. New accounts require a syntactically valid email address and a password between 12 and 128 characters. The email check validates address format; it does not confirm that the mailbox exists. The browser interface uses the same 100 MiB per-file limit as the API.
+
+### Publish the web interface with Cloudflare Tunnel
+
+The merged application configuration is compatible with a reverse proxy: `server.forward-headers-strategy=framework` tells Spring to interpret forwarded host/protocol information from the proxy. It does **not** connect to Cloudflare by itself. The Cloudflare Tunnel connector, `cloudflared`, must run separately on the Ubuntu server and forward traffic to the local backend.
+
+```text
+User browser --HTTPS--> Cloudflare --encrypted tunnel--> cloudflared
+                                                   --> http://localhost:8080
+                                                   --> Spring Boot UI and API
+```
+
+The current `backend/compose.yaml` starts PostgreSQL only; the backend still runs on the host through Maven/`DocsServer`. Start the backend and confirm `http://localhost:8080/` works before configuring a tunnel. The following commands run on the same server as the backend.
+
+#### Temporary development URL
+
+Install `cloudflared` using [Cloudflare's Linux installation instructions](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/downloads/), then run:
+
+```bash
+cloudflared tunnel --url http://localhost:8080
+```
+
+Cloudflare prints a temporary `https://<random>.trycloudflare.com` URL. It works only while this command is running, and the URL changes when a new Quick Tunnel is started. Anyone with the URL can reach the application unless you add an access restriction. Quick Tunnels are for testing and development, not a permanent deployment. [Cloudflare Quick Tunnel documentation](https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/)
+
+#### Persistent hostname
+
+For regular use, have a domain managed by Cloudflare and create a **named/remote-managed tunnel** in the Cloudflare dashboard. Create a Cloudflare Access self-hosted application and an allow policy for the intended people **before** publishing the hostname. A tunnel route without Access can make the app reachable to anyone on the internet; Access adds a Cloudflare identity check before requests reach the app. If available in the tunnel settings, enable **Protect with Access** so `cloudflared` also validates the Access token at the origin. [Cloudflare's tunnel setup guide](https://developers.cloudflare.com/tunnel/get-started/) and [self-hosted application Access guide](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/self-hosted-public-app/) describe these steps.
+
+1. In Cloudflare, create a tunnel and choose the Linux installation command shown for the Ubuntu server. Keep the tunnel token private; do not put it in Git or the project's `.env` file.
+2. Add a published application route for a hostname such as `files.example.com`, with service URL `http://localhost:8080`.
+3. Install the tunnel as a `cloudflared` system service using the dashboard-provided command. Check the tunnel status in the Cloudflare dashboard.
+4. Set `SESSION_COOKIE_SECURE=true` in the server's environment/ignored `.env`. The user's browser sees HTTPS at Cloudflare even though `cloudflared` connects to the local Spring server over HTTP.
+5. For the current host-run backend, set `SERVER_ADDRESS=127.0.0.1` so the Spring port is reachable locally by `cloudflared` without listening on every server network interface. If the app is later placed in Docker, bind the **host-published** app port to `127.0.0.1`; the app inside its container must still listen on its container interface.
+6. Keep PostgreSQL off the public interfaces. The current Compose file publishes its port; for a host-run backend, bind it to loopback, for example `127.0.0.1:${POSTGRES_PORT:-5432}:5432`, or use an internal-only Docker network when the backend is containerized.
+7. Open the HTTPS hostname, pass the Cloudflare Access check, then sign in to the application's own account.
+
+Cloudflare Access and the application's login are separate checks. The application currently permits self-registration, so users who pass the Cloudflare policy can still create an app account. Cloudflare Tunnel transports requests; it does not replace the application's owner checks, login, or CSRF protection.
+
+Because the UI and API share the tunneled hostname, browser requests are same-origin and do not need a Cloudflare hostname in `CORS_ALLOWED_ORIGINS`. If the frontend is hosted at a different origin, configure that exact `https://...` origin; do not use `https://*.trycloudflare.com` or another wildcard with credentials.
 
 ### Configuration
 
 | Variable | Default | Purpose |
 |---|---|---|
 | `SERVER_PORT` | `8080` | HTTP port |
+| `SERVER_ADDRESS` | all interfaces | Host-run listener address; set to `127.0.0.1` when `cloudflared` runs on the same host |
 | `DB_URL` | `jdbc:postgresql://localhost:5432/cloud_storage` | PostgreSQL JDBC URL |
 | `DB_USER` | `cloud_storage` | Database user |
 | `DB_PASSWORD` | required | Database password; keep it outside source control |
@@ -71,9 +111,9 @@ Create an account or sign in, then upload/download files, create and navigate fo
 | `MAX_FILE_SIZE_BYTES` | `104857600` | Application-level file limit (100 MiB) |
 | `MAX_FILE_SIZE` | `100MB` | Servlet multipart per-file limit |
 | `MAX_REQUEST_SIZE` | `101MB` | Servlet multipart total request limit |
-| `SESSION_COOKIE_SECURE` | `false` | Set `true` when HTTPS is enabled |
+| `SESSION_COOKIE_SECURE` | `false` | Set `true` when the public browser connection uses HTTPS, including Cloudflare Tunnel |
 | `SESSION_COOKIE_SAME_SITE` | `lax` | Use `none` for cross-site browser deployments with secure cookies |
-| `CORS_ALLOWED_ORIGINS` | `http://localhost:3000,http://localhost:5173` | Exact allowed frontend origins |
+| `CORS_ALLOWED_ORIGINS` | `http://localhost:3000,http://localhost:5173` | Exact allowed origins for separate frontends; the same-origin UI does not need CORS |
 
 If PostgreSQL uses custom database/user settings in Compose, set matching `DB_URL` and `DB_USER` values for the backend. Set the three upload limits together.
 
@@ -163,4 +203,4 @@ Success responses use JSON metadata; errors use `{ "timestamp", "status", "code"
 - Failed uploads remove pending rows/temporary objects. Startup reconciliation retries stale uploads/deletions and removes unreferenced UUID objects.
 - Deletion first changes metadata to `deleting`; failed disk cleanup is retried during startup reconciliation.
 - Folder moves serialize per owner and check descendants recursively to reject cycles.
-- No HTTPS proxy, rate limiting, account recovery, persistent session store, quota, or cloud object store is configured. Do not expose the service to the public internet without deployment hardening.
+- `server.forward-headers-strategy=framework` enables forwarded-header handling, but this repository does not configure or run `cloudflared`, create a Cloudflare Access policy, or automatically validate Access tokens. Do not publish a public hostname until Cloudflare Access is configured. Rate limiting, account recovery, persistent session storage, quotas, and cloud object storage are also not configured.

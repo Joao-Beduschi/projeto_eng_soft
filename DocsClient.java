@@ -30,6 +30,11 @@ public final class DocsClient {
     private static final Duration REQUEST_TIMEOUT = Duration.ofMinutes(5);
     private static final Pattern CSRF_TOKEN =
             Pattern.compile("\"token\"\\s*:\\s*\"([^\"]+)\"");
+    private static final Pattern EMAIL_SHAPE = Pattern.compile(
+            "^[A-Z0-9!#$%&'*+/=?^_`{|}~-]+(?:\\.[A-Z0-9!#$%&'*+/=?^_`{|}~-]+)*"
+                    + "@(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\\.)+"
+                    + "[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?$",
+            Pattern.CASE_INSENSITIVE);
     private static final String DEFAULT_API_URL = "http://localhost:8080";
 
     private final URI apiBase;
@@ -596,13 +601,15 @@ public final class DocsClient {
     }
 
     private static boolean isValidEmailShape(String email) {
-        if (email.isBlank() || email.length() > 320 || email.chars().anyMatch(Character::isWhitespace)) {
+        if (email.isBlank() || email.length() > 320) {
             return false;
         }
         int separator = email.indexOf('@');
-        return separator > 0
-                && separator < email.length() - 1
-                && email.indexOf('@', separator + 1) < 0;
+        int domainLength = email.length() - separator - 1;
+        return separator > 0 && separator <= 64
+                && domainLength <= 255
+                && separator == email.lastIndexOf('@')
+                && EMAIL_SHAPE.matcher(email).matches();
     }
 
     private static String jsonEscape(String value) {

@@ -60,7 +60,8 @@
         </div>
         <form id="auth-form" class="auth-form">
           <label class="field-label" for="auth-email">Email address</label>
-          <input id="auth-email" name="email" type="email" autocomplete="email" maxlength="320" placeholder="you@example.com" required>
+          <input id="auth-email" name="email" type="email" autocomplete="email" maxlength="320" placeholder="you@example.com" aria-describedby="email-hint" required>
+          <p id="email-hint" class="field-hint field-hint-error" aria-live="polite" hidden>Enter an email like name@example.com.</p>
           <label class="field-label" for="auth-password">Password</label>
           <input id="auth-password" name="password" type="password" autocomplete="current-password" maxlength="128" placeholder="Enter your password" required>
           <p id="password-hint" class="field-hint" hidden>Use 12–128 characters for your new password.</p>

@@ -34,6 +34,14 @@ The backend must:
 
 A university course specification may impose additional requirements. When it does, the course document takes precedence over these general recommendations.
 
+### 1.2 Current repository deployment note (2026-11-13; not a new requirement)
+
+The current Spring Boot application sets `server.forward-headers-strategy=framework` so it can interpret forwarded host/protocol headers when placed behind a reverse proxy. This is proxy compatibility, not a Cloudflare Tunnel client: the Java application does not install, start, or configure `cloudflared`.
+
+For Cloudflare Tunnel, run the separate `cloudflared` connector on the Ubuntu host and route a public hostname to the local application, normally `http://localhost:8080`. The frontend and API are served from that same hostname, so they are same-origin and do not need CORS. The backend's CORS configuration accepts explicit origins for a separately hosted frontend; do not add a wildcard for credentialed requests.
+
+A published tunnel hostname can be reachable from the internet. Configure a Cloudflare Access application and an allow policy before publishing it; Access protects the hostname, while the backend's own session login and per-user authorization still protect application data. Set `SESSION_COOKIE_SECURE=true` when the browser uses the HTTPS hostname. See [backend/README.md](backend/README.md#publish-the-web-interface-with-cloudflare-tunnel) for the operational steps. The deployment checklist below remains incomplete until the tunnel, Access policy, backups, and other production controls are configured and verified.
+
 ## 2. System architecture
 
 ```text
@@ -708,6 +716,7 @@ The hashes must match for an unchanged file. For stronger automation, assert thi
 
 ### Production deployment (if applicable)
 - [ ] HTTPS, secure cookies/CSRF/CORS, secret management
+- [ ] If publishing through Cloudflare Tunnel, run `cloudflared` as a service and require Cloudflare Access for the hostname; the app code does not create the tunnel
 - [ ] Database and storage backups with restoration procedure
 - [ ] Rate limiting, basic monitoring and security logs
 - [ ] Dependency updates and incident/error response procedures

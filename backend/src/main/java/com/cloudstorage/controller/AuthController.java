@@ -10,6 +10,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -32,6 +33,9 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api")
 public class AuthController {
+    private static final String EMAIL_PATTERN =
+            "^(?=[^@]{1,64}@[^@]{1,255}$)[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\\.[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+)*@(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\\.)+[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$";
+
     private final AuthService authService;
     private final AuthenticationManager authenticationManager;
     private final SecurityContextRepository securityContextRepository;
@@ -116,7 +120,7 @@ public class AuthController {
     }
 
     public record RegisterRequest(
-            @NotBlank @Email @Size(max = 320) String email,
+            @NotBlank @Email @Pattern(regexp = EMAIL_PATTERN) @Size(max = 320) String email,
             @NotBlank @Size(min = 12, max = 128) String password) {
     }
 

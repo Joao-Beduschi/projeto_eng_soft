@@ -14,6 +14,7 @@ const authView = $("#auth-view");
 const appView = $("#app-view");
 const authForm = $("#auth-form");
 const authEmail = $("#auth-email");
+const emailHint = $("#email-hint");
 const authPassword = $("#auth-password");
 const authSubmit = $("#auth-submit");
 const passwordHint = $("#password-hint");
@@ -24,6 +25,7 @@ const dropOverlay = $("#drop-overlay");
 const actionDialog = $("#action-dialog");
 const actionForm = $("#action-form");
 const dialogFields = $("#dialog-fields");
+const EMAIL_SHAPE = /^[A-Z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[A-Z0-9!#$%&'*+/=?^_`{|}~-]+)*@(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?$/i;
 
 class ApiError extends Error {
   constructor(message, status, code) {
@@ -130,6 +132,9 @@ async function showApplication(user) {
 function setAuthMode(mode) {
   state.authMode = mode;
   const registering = mode === "register";
+  authEmail.setCustomValidity("");
+  authEmail.removeAttribute("aria-invalid");
+  emailHint.hidden = true;
   document.querySelectorAll("[data-auth-mode]").forEach((button) => {
     const selected = button.dataset.authMode === mode;
     button.classList.toggle("is-active", selected);
@@ -150,13 +155,37 @@ document.querySelectorAll("[data-auth-mode]").forEach((button) => {
   button.addEventListener("click", () => setAuthMode(button.dataset.authMode));
 });
 
+function isValidEmailAddress(email) {
+  if (!email || email.length > 320 || /\s/.test(email)) return false;
+  const separator = email.indexOf("@");
+  if (separator < 1 || separator > 64 || separator !== email.lastIndexOf("@")) return false;
+  if (email.length - separator - 1 > 255) return false;
+  return EMAIL_SHAPE.test(email);
+}
+
+authEmail.addEventListener("input", () => {
+  authEmail.setCustomValidity("");
+  authEmail.removeAttribute("aria-invalid");
+  emailHint.hidden = true;
+});
+
 authForm.addEventListener("submit", async (event) => {
   event.preventDefault();
+  const registering = state.authMode === "register";
+  const email = authEmail.value.trim();
+  if (registering && !isValidEmailAddress(email)) {
+    authEmail.setCustomValidity("Enter a valid email address, like name@example.com.");
+    authEmail.setAttribute("aria-invalid", "true");
+    emailHint.hidden = false;
+    authEmail.reportValidity();
+    return;
+  }
+  authEmail.setCustomValidity("");
+  authEmail.removeAttribute("aria-invalid");
+  emailHint.hidden = true;
   if (!authForm.reportValidity()) return;
 
-  const email = authEmail.value.trim();
   const password = authPassword.value;
-  const registering = state.authMode === "register";
   authSubmit.disabled = true;
   authSubmit.textContent = registering ? "Creating account…" : "Signing in…";
 
