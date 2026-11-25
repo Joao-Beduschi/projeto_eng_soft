@@ -17,7 +17,7 @@ The root-level `DocsServer.java` and `DocsClient.java` are integrated with this 
 - Duplicate names are allowed within a folder. Each upload gets a separate ID.
 - Deleting a nonempty folder returns `409 Conflict`. Move operations reject direct and indirect cycles.
 - The browser UI and API use the same origin, so the normal browser interface does not need CORS. For a separately hosted frontend, set `CORS_ALLOWED_ORIGINS` to comma-separated exact origins; wildcard credentialed CORS is not enabled.
-- Sharing, public links, previews, versions, quotas and password recovery are out of scope.
+- File revision history is supported for uploaded files. Sharing, public links, previews, quotas and password recovery are out of scope.
 
 ## Run locally
 
@@ -31,7 +31,7 @@ export DB_PASSWORD="$POSTGRES_PASSWORD"
 mvn spring-boot:run
 ```
 
-Flyway applies `src/main/resources/db/migration/V1__initial_schema.sql` at startup. Set `STORAGE_ROOT` to choose a different private data directory. Do not place it under a public/static web directory or commit its contents.
+Flyway applies the migrations in `src/main/resources/db/migration/` at startup. `V2__file_versions.sql` backfills every existing file as version 1 and keeps its existing storage key and bytes. Set `STORAGE_ROOT` to choose a different private data directory. Do not place it under a public/static web directory or commit its contents.
 
 ### Use the root Java entrypoints
 
@@ -130,7 +130,24 @@ Run integration tests with Docker available:
 mvn test
 ```
 
-The tests start a disposable PostgreSQL container and use a temporary storage directory. They cover hashed-password authentication, case-insensitive duplicate accounts, CSRF/session behavior, binary round-trips, owner isolation, interrupted uploads, unsafe names, folder cycles/deletion policy, storage reinitialization readability, and concurrent same-name uploads.
+The tests start disposable PostgreSQL containers and use a temporary storage directory. They cover hashed-password authentication, case-insensitive duplicate accounts, CSRF/session behavior, binary round-trips, owner isolation, interrupted uploads, unsafe names, folder cycles/deletion policy, storage reinitialization readability, concurrent same-name uploads, legacy-file migration backfill, file revision history and restore, stale and simultaneous edits, failed revision cleanup, and authorized HTTP routes.
+
+### P0 end-to-end validation (2026-11-25)
+
+The packaged application was also run locally with a separate disposable PostgreSQL container and a fresh temporary storage root. The automated suite passed **8 tests, 0 failures**. Headless Chrome exercised the browser registration/login and file upload flow; the Java `DocsClient` registered a second user and exercised login, upload, listing, and download.
+
+- The browser user uploaded and retrieved a 262,144-byte binary file. Its SHA-256 was `8f2144a274ead978258dbbcc0b62c5b0ee7335eb2bf729fbb5ca4026af0f0a14` before and after download.
+- The Java user uploaded and retrieved a 131,071-byte binary file. Its SHA-256 was `e76c8ea2cd8b92b8413ed9583c99d85a076bd582e32d81d20078621644caf526` before and after download.
+- After restarting the application process with the same test database and storage directory, both users logged in again and downloaded their files with matching checksums. User B's file list contained only B's file, and B's attempt to download user A's file returned HTTP 404.
+- A multipart request cut off after 32 KiB of its declared 5,000,000-byte body left no visible metadata, stored object, or temporary object. A `../../...` upload filename returned HTTP 400, and an outside-storage sentinel file stayed unchanged.
+
+The Java download request now accepts `*/*` because downloads may have different MIME types and API errors are JSON. This lets the client receive the correct 404 response for an inaccessible file instead of a content-negotiation HTTP 500. These checks used isolated temporary data, which was removed afterward; they did not exercise the remote Ubuntu host, Cloudflare Tunnel/Access, public HTTPS, or backup/restore.
+
+### P2 file revision history verification (2026-11-25)
+
+`backend/.tools/apache-maven-3.10.0/bin/mvn -f backend/pom.xml -B -ntp test` completed successfully: **15 tests, 0 failures, 0 errors, 0 skipped**. The test run used disposable PostgreSQL 16 containers and a temporary file-storage directory. It exercised V1-to-V2 migration and backfill, v1 → v2 → v3, SHA-256 values, byte-for-byte historical downloads, database rejection of revision edits/deletes, restoring v1 as v4, stale ETag rejection, a concurrent upload reservation conflict, cleanup after a truncated revision, whole-file deletion through the existing lifecycle, other-user and anonymous access denial, and authenticated HTTP upload/restore/download routes.
+
+The P2 checks ran as automated API and migration tests. They did not exercise version history through the browser UI or against the remote Ubuntu/Cloudflare deployment.
 
 ## Authentication and CSRF flow
 
@@ -155,7 +172,12 @@ All routes below, except registration, login, and CSRF retrieval, require an aut
 | POST | `/api/files` | Multipart upload (`file`, optional `folderId`) |
 | GET | `/api/files?folderId=...` | List files in folder; omit folderId for root |
 | GET | `/api/files/{id}` | Get file metadata |
-| GET | `/api/files/{id}/download` | Stream original bytes as an attachment |
+| GET | `/api/files/{id}/download` | Stream the current revision as an attachment |
+| GET | `/api/files/{id}/versions` | List ready revisions and return the current strong ETag |
+| POST | `/api/files/{id}/versions` | Upload a revision (`If-Match`, multipart `file`, optional `changeMessage`) |
+| GET | `/api/files/{id}/versions/{versionNumber}` | Get one revision's metadata |
+| GET | `/api/files/{id}/versions/{versionNumber}/download` | Stream the exact historical revision bytes |
+| POST | `/api/files/{id}/versions/{versionNumber}/restore` | Restore a revision by creating a new current revision (`If-Match`) |
 | PATCH | `/api/files/{id}` | Rename (`name`) and/or move (`folderId`; `null` means root) |
 | DELETE | `/api/files/{id}` | Delete metadata and stored bytes |
 | POST | `/api/folders` | Create folder (`name`, optional `parentId`) |
@@ -196,10 +218,34 @@ curl -b cookies.txt -c cookies.txt \
 
 Success responses use JSON metadata; errors use `{ "timestamp", "status", "code", "message", "path" }`. Files owned by another user are reported as `404` to avoid revealing their existence. `pending` and `deleting` files are never listed or downloaded.
 
+### File revision history
+
+A file ID is the stable identity of the logical file. Every successful upload or restore appends an immutable, numbered revision with its own UUID storage key, uploader account, creation timestamp, byte length, SHA-256 and optional change message. The existing `files.storage_key`, size, MIME type and checksum columns describe the current revision for compatibility with the existing file API. Previous revision keys and bytes are not reused or overwritten.
+
+`GET /api/files/{id}/versions` returns oldest-first history. It also returns the current ETag in the JSON body and the HTTP `ETag` header. Each item contains `id`, `fileId`, `versionNumber`, `uploaderUserId`, `createdAt` (UTC), `sizeBytes`, `sha256`, `changeMessage`, and `current`.
+
+To upload a new revision, send the ETag from the latest history response as the exact, quoted `If-Match` value. The request is multipart; `changeMessage` is an optional form field (maximum 1000 characters, no control characters). The authenticated session supplies `uploaderUserId`; clients cannot choose it.
+
+```bash
+curl -b cookies.txt -c cookies.txt -H 'X-CSRF-TOKEN: <token>' -H 'If-Match: "4ea79cc7-abaf-443c-97b7-7215ddc13df7-v2"' -F 'file=@/path/to/replacement.pdf' -F 'changeMessage=Updated figures' http://localhost:8080/api/files/4ea79cc7-abaf-443c-97b7-7215ddc13df7/versions
+```
+
+The `201 Created` response contains the new revision metadata and its ETag. A missing `If-Match` returns `428 Precondition Required`; malformed tags return `400`; a tag for an older current revision returns `412 Precondition Failed`. A simultaneous request that reserves the same next revision number while another upload is in progress returns `409 Conflict`. Clients should fetch history again after either response and retry only after reviewing the new current ETag.
+
+`GET /api/files/{id}/versions/{versionNumber}` returns metadata; adding `/download` streams that exact version as an attachment. `POST /api/files/{id}/versions/{versionNumber}/restore` accepts an optional JSON body such as `{"changeMessage":"Restore before cleanup"}` and requires the current `If-Match`. Restore copies the selected old bytes to a fresh storage key and creates the next version number; it does not move the current pointer backward. Missing or other-user file IDs and versions return `404`. Every version endpoint uses the same authenticated owner check as the existing file endpoints, and POST requests require CSRF.
+
+`DELETE /api/files/{id}` retains the existing whole-file deletion behavior: it removes the logical file and all of its stored revisions. A successful revision upload or restore does not remove any earlier revision.
+
+#### Migration and rollback
+
+Flyway V2 adds `file_versions`, a nullable `files.current_version_id`, a composite foreign key that ensures the current revision belongs to the same file, and a check that ready files have a current revision. A database trigger rejects updates to ready history rows and their individual deletion; the existing whole-file deletion lifecycle can remove them after the logical file is marked `deleting`. The migration backfills pre-existing rows as version 1, attributes them to the existing owner, copies their original timestamp, size, checksum and status, and points ready files to the inserted version. It reuses `files.storage_key`; it neither moves nor rewrites any stored bytes. The backfill `INSERT` uses `WHERE NOT EXISTS` so that data-copy step can be safely retried; Flyway still applies the complete schema migration once.
+
+Flyway does not automatically roll back applied SQL migrations. For an application rollback, stop the service and restore a matching database and storage backup. If intentionally removing V2 metadata, first stop the service and preserve the storage objects referenced by every `file_versions.storage_key` outside the active storage root; otherwise the old application's startup reconciliation can treat later revision objects as unreferenced and remove them. With a database backup available, the schema additions can be removed in this order: drop `fk_files_current_version` and `chk_files_ready_has_current_version`, drop `files.current_version_id`, then drop `file_versions`. The original V1 file metadata and its original storage object remain unchanged by that SQL rollback. Do not use this rollback path after creating revisions unless their bytes and metadata are backed up.
+
 ## Operational notes
 
 - SQL transactions use JDBC bind parameters. Composite foreign keys enforce that files and nested folders share their owner's identity.
-- Uploads write to a temporary file, enforce the byte limit while streaming, calculate SHA-256, force file contents, atomically move into place, then mark SQL metadata `ready`.
+- Uploads write to a temporary file, enforce the byte limit while streaming, calculate SHA-256, force file contents, atomically move into place, then mark SQL metadata `ready`. Revisions reserve a pending history row and a new UUID object key, then mark the revision ready and advance the file's current pointer only if the expected current revision still matches.
 - Failed uploads remove pending rows/temporary objects. Startup reconciliation retries stale uploads/deletions and removes unreferenced UUID objects.
 - Deletion first changes metadata to `deleting`; failed disk cleanup is retried during startup reconciliation.
 - Folder moves serialize per owner and check descendants recursively to reject cycles.

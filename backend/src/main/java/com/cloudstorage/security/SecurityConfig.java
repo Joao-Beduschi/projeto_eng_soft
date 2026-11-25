@@ -92,8 +92,8 @@ public class SecurityConfig {
                 .filter(origin -> !origin.isEmpty())
                 .toList());
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PATCH", "DELETE", "OPTIONS"));
-        configuration.setAllowedHeaders(Arrays.asList("Accept", "Content-Type", "X-CSRF-TOKEN"));
-        configuration.setExposedHeaders(Arrays.asList("Content-Disposition", "Location"));
+        configuration.setAllowedHeaders(Arrays.asList("Accept", "Content-Type", "X-CSRF-TOKEN", "If-Match"));
+        configuration.setExposedHeaders(Arrays.asList("Content-Disposition", "Location", "ETag"));
         configuration.setAllowCredentials(true);
         configuration.setMaxAge(3600L);
 

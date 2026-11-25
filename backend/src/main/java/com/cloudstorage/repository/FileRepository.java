@@ -17,7 +17,7 @@ import org.springframework.stereotype.Repository;
 public class FileRepository {
     private static final String SELECT_COLUMNS = """
             id, owner_id, folder_id, name, storage_key, size_bytes, mime_type,
-            sha256, status, created_at, updated_at
+            sha256, status, current_version_id, created_at, updated_at
             """;
 
     private final NamedParameterJdbcTemplate jdbc;
@@ -36,15 +36,38 @@ public class FileRepository {
                 """, parameters(file));
     }
 
-    public boolean markReady(UUID id, UUID ownerId, String sha256, String mimeType) {
+    public boolean markReady(UUID id, UUID ownerId, UUID currentVersionId, String sha256, String mimeType) {
         return jdbc.update("""
                 UPDATE files
                 SET status = 'ready', sha256 = :sha256, mime_type = :mimeType,
+                    current_version_id = :currentVersionId,
                     updated_at = NOW()
                 WHERE id = :id AND owner_id = :ownerId AND status = 'pending'
                 """, new MapSqlParameterSource()
                 .addValue("id", id)
                 .addValue("ownerId", ownerId)
+                .addValue("currentVersionId", currentVersionId)
+                .addValue("sha256", sha256)
+                .addValue("mimeType", mimeType)) == 1;
+    }
+
+    public boolean advanceCurrentVersion(UUID id, UUID ownerId, UUID expectedVersionId,
+                                         UUID nextVersionId, UUID storageKey, long sizeBytes,
+                                         String sha256, String mimeType) {
+        return jdbc.update("""
+                UPDATE files
+                SET current_version_id = :nextVersionId, storage_key = :storageKey,
+                    size_bytes = :sizeBytes, sha256 = :sha256, mime_type = :mimeType,
+                    updated_at = NOW()
+                WHERE id = :id AND owner_id = :ownerId AND status = 'ready'
+                  AND current_version_id = :expectedVersionId
+                """, new MapSqlParameterSource()
+                .addValue("id", id)
+                .addValue("ownerId", ownerId)
+                .addValue("expectedVersionId", expectedVersionId)
+                .addValue("nextVersionId", nextVersionId)
+                .addValue("storageKey", storageKey)
+                .addValue("sizeBytes", sizeBytes)
                 .addValue("sha256", sha256)
                 .addValue("mimeType", mimeType)) == 1;
     }
@@ -53,6 +76,17 @@ public class FileRepository {
         List<FileRecord> rows = jdbc.query("""
                 SELECT %s FROM files
                 WHERE id = :id AND owner_id = :ownerId AND status = 'ready'
+                """.formatted(SELECT_COLUMNS), new MapSqlParameterSource()
+                .addValue("id", id)
+                .addValue("ownerId", ownerId), this::mapFile);
+        return rows.stream().findFirst();
+    }
+
+    public Optional<FileRecord> findReadyOwnedForUpdate(UUID id, UUID ownerId) {
+        List<FileRecord> rows = jdbc.query("""
+                SELECT %s FROM files
+                WHERE id = :id AND owner_id = :ownerId AND status = 'ready'
+                FOR UPDATE
                 """.formatted(SELECT_COLUMNS), new MapSqlParameterSource()
                 .addValue("id", id)
                 .addValue("ownerId", ownerId), this::mapFile);
@@ -94,7 +128,7 @@ public class FileRepository {
 
     public Optional<FileRecord> markDeleting(UUID id, UUID ownerId) {
         int updated = jdbc.update("""
-                UPDATE files SET status = 'deleting', updated_at = NOW()
+                UPDATE files SET status = 'deleting', current_version_id = NULL, updated_at = NOW()
                 WHERE id = :id AND owner_id = :ownerId AND status = 'ready'
                 """, new MapSqlParameterSource()
                 .addValue("id", id)
@@ -151,6 +185,7 @@ public class FileRepository {
                 rs.getString("mime_type"),
                 rs.getString("sha256"),
                 rs.getString("status"),
+                rs.getObject("current_version_id", UUID.class),
                 rs.getObject("created_at", OffsetDateTime.class),
                 rs.getObject("updated_at", OffsetDateTime.class));
     }

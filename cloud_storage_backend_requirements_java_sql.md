@@ -4,7 +4,7 @@
 >
 > **Recommended stack:** Java + Spring Boot, PostgreSQL, Spring Data JPA **or** JDBC, server-side sessions, persistent local filesystem storage, Flyway, JUnit. These are implementation recommendations, not requirements imposed by the cloud-storage concept itself.
 >
-> **Scope note:** The basic functional core needs users, authentication, upload/download/list/delete, persistent file bytes, metadata, per-user authorization, validation, and error handling. Folders, rename, and move are **required for the Google Drive–style MVP described here**, but not for the smallest possible storage API. File sharing, preview, version history, cloud synchronization, mobile apps, and real-time collaboration are out of scope unless explicitly added.
+> **Scope note:** The basic functional core needs users, authentication, upload/download/list/delete, persistent file bytes, metadata, per-user authorization, validation, and error handling. Folders, rename, and move are **required for the Google Drive–style MVP described here**, but not for the smallest possible storage API. File sharing, preview, version history, cloud synchronization, mobile apps, and real-time collaboration are out of scope unless explicitly added. The user has explicitly added file version history to this repository as the current P2 follow-on; see §1.3.
 
 ## 1. Project goals and boundaries
 
@@ -23,24 +23,28 @@ The backend must:
 
 **Do not put file contents in SQL by default.** PostgreSQL holds user records, folder relationships, and file metadata; a persistent filesystem (or later an object store) holds file contents.
 
-**Explicit out of scope:** paid plans, email verification, 2FA, sharing/permissions beyond ownership, expiring links, file previews, file versions, trash/restore, resumable uploads, malware scanning, desktop/mobile synchronization, and real-time collaboration. These can be introduced later.
+**Original MVP out of scope:** paid plans, email verification, 2FA, sharing/permissions beyond ownership, expiring links, file previews, file versions, trash/restore, resumable uploads, malware scanning, desktop/mobile synchronization, and real-time collaboration. The current repository's explicitly authorized P2 version-history addition is described in §1.3; this does not authorize the other listed features.
 
 ### 1.1 Requirement priority conventions
 
 - **P0 — Required core:** needed for a secure, functional multi-user file service.
 - **P1 — Required for this Drive-like MVP:** folder hierarchy, rename, and move.
-- **P2 — Recommended:** search, explicit per-user quotas, display used space, advanced observability.
-- **P3 — Optional:** sharing, versions, previews, resumable uploads, cloud sync.
+- **P2 — Recommended follow-on:** search, explicit per-user quotas, display used space, advanced observability. For this repository phase, the user additionally selected file version history as P2; see §1.3.
+- **P3 — Optional:** sharing, previews, resumable uploads, cloud sync.
 
 A university course specification may impose additional requirements. When it does, the course document takes precedence over these general recommendations.
 
-### 1.2 Current repository deployment note (2026-11-13; not a new requirement)
+### 1.2 Current repository deployment note (updated 2026-11-25; not a new requirement)
 
 The current Spring Boot application sets `server.forward-headers-strategy=framework` so it can interpret forwarded host/protocol headers when placed behind a reverse proxy. This is proxy compatibility, not a Cloudflare Tunnel client: the Java application does not install, start, or configure `cloudflared`.
 
 For Cloudflare Tunnel, run the separate `cloudflared` connector on the Ubuntu host and route a public hostname to the local application, normally `http://localhost:8080`. The frontend and API are served from that same hostname, so they are same-origin and do not need CORS. The backend's CORS configuration accepts explicit origins for a separately hosted frontend; do not add a wildcard for credentialed requests.
 
 A published tunnel hostname can be reachable from the internet. Configure a Cloudflare Access application and an allow policy before publishing it; Access protects the hostname, while the backend's own session login and per-user authorization still protect application data. Set `SESSION_COOKIE_SECURE=true` when the browser uses the HTTPS hostname. See [backend/README.md](backend/README.md#publish-the-web-interface-with-cloudflare-tunnel) for the operational steps. The deployment checklist below remains incomplete until the tunnel, Access policy, backups, and other production controls are configured and verified.
+
+### 1.3 Current P2 addition: immutable file revision history
+
+The current repository implements the user's explicitly authorized P2 file-version-history phase. A logical file retains its stable `files.id`; every upload revision and restore appends a new immutable numbered record and stores bytes under a fresh UUID key. The additive Flyway V2 migration backfills existing files as v1 while reusing their current keys and bytes. Revision writes require the current ETag in `If-Match`; stale writes return `412`, an in-progress duplicate reservation returns `409`, and restores create a new current revision rather than moving the pointer backward. Every revision operation is authenticated and owner-scoped. The concrete routes, response fields, rollback notes, and test results are documented in [backend/README.md](backend/README.md#file-revision-history).
 
 ## 2. System architecture
 
@@ -89,7 +93,7 @@ A REST API is recommended for a separate frontend/backend design, but REST is no
 | `folders` | Nested folder hierarchy and ownership | P1 |
 | `sessions` | Persistent sessions, **only if** using database-backed sessions | Implementation-dependent |
 | `file_permissions` | User-to-file sharing/access rights | P3, not in MVP |
-| `file_versions` | Historical versions | P3, not in MVP |
+| `file_versions` | Immutable historical revisions and current-revision pointer target | P2, authorized follow-on |
 | `audit_logs` | Security-sensitive activity logging | Recommended for production |
 | `password_reset_tokens` | Password recovery | Only if feature implemented |
 
@@ -269,7 +273,8 @@ Login flow: look up account by email -> verify password hash in Java -> create s
 | FILE-10 | Move file among folders/root | P1 |
 | FILE-11 | Search file by name | P2 |
 | FILE-12 | Track used storage and enforce capacity | P0 for safe global/file limits; P2 for explicit per-user quotas |
-| FILE-13 | Multiple uploads, ZIP download, preview, version history, recycle bin | P3 |
+| FILE-13 | Multiple uploads, ZIP download, preview, recycle bin | P3 |
+| FILE-14 | Append immutable file revisions; list and download history; restore as a new revision; reject stale writes using ETags | P2, authorized follow-on |
 
 **File metadata example:**
 
@@ -334,6 +339,11 @@ Use JSON for metadata and multipart/form-data for uploads. These routes are a su
 | GET | `/api/files` | List accessible files (e.g. optional `folderId`) | P0 |
 | GET | `/api/files/{id}` | File metadata | P0 |
 | GET | `/api/files/{id}/download` | Download file bytes | P0 |
+| GET | `/api/files/{id}/versions` | List revisions and return current ETag | P2, authorized follow-on |
+| POST | `/api/files/{id}/versions` | Upload a revision with `If-Match` | P2, authorized follow-on |
+| GET | `/api/files/{id}/versions/{versionNumber}` | Revision metadata | P2, authorized follow-on |
+| GET | `/api/files/{id}/versions/{versionNumber}/download` | Download exact historical bytes | P2, authorized follow-on |
+| POST | `/api/files/{id}/versions/{versionNumber}/restore` | Restore as a new revision with `If-Match` | P2, authorized follow-on |
 | DELETE | `/api/files/{id}` | Delete file | P0 |
 | PATCH | `/api/files/{id}` | Rename or move file | P1 |
 | POST | `/api/folders` | Create folder | P1 |
@@ -621,6 +631,18 @@ If the university explicitly requires Java sockets, do not assume the team may s
 | TEST-20 | Concurrent uploads | Distinct files/keys, no corruption |
 | TEST-21 | Disk-full or storage failure | Error reported; no false successful upload |
 | TEST-22 | Invalid SQL-like filename/search input | Treated as data; no injection |
+
+### 10.1 Repository P0 validation record (2026-11-25)
+
+The current local implementation was exercised using the built Spring Boot JAR, a disposable PostgreSQL container, and a temporary storage root. The existing automated integration suite passed **8 tests with 0 failures**. Additional browser and Java client workflows verified these P0 behaviors:
+
+- Two distinct users registered and logged in through the browser and Java client. Each listed and downloaded its own file; user B's attempt to download user A's file returned `404 Not Found`.
+- A 262,144-byte browser upload and a 131,071-byte Java client upload were downloaded with SHA-256 values matching their originals.
+- The application process restarted against the same test database and storage directory. Both users logged in again and retrieved their files with unchanged checksums.
+- A multipart upload interrupted after only part of its declared body left no visible metadata, committed storage object, or temporary storage object.
+- An upload filename containing `../../` was rejected with HTTP 400, and a file outside the storage root remained unchanged.
+
+These results verify the listed local scenarios; they do not mean every row in the acceptance-test table has been exercised. The actual Ubuntu host, Cloudflare Tunnel/Access policy, public HTTPS, backups, and restore process were not tested. Those deployment checks remain required before public release.
 
 Useful integrity command:
 

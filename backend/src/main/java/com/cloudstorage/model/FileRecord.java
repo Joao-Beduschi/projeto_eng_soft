@@ -13,6 +13,7 @@ public record FileRecord(
         String mimeType,
         String sha256,
         String status,
+        UUID currentVersionId,
         OffsetDateTime createdAt,
         OffsetDateTime updatedAt) {
 }

@@ -3,14 +3,18 @@ package com.cloudstorage.service;
 import com.cloudstorage.dto.FileResponse;
 import com.cloudstorage.exception.ApiException;
 import com.cloudstorage.model.FileRecord;
+import com.cloudstorage.model.FileVersionRecord;
 import com.cloudstorage.model.StoredObject;
 import com.cloudstorage.repository.FileRepository;
+import com.cloudstorage.repository.FileVersionRepository;
 import com.cloudstorage.repository.FolderRepository;
 import com.cloudstorage.validation.NameValidator;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -18,23 +22,30 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.multipart.MultipartFile;
 
 @Service
 public class FileService {
     private static final Logger log = LoggerFactory.getLogger(FileService.class);
     private final FileRepository files;
+    private final FileVersionRepository versions;
     private final FolderRepository folders;
     private final StorageService storage;
+    private final TransactionTemplate transactions;
     private final long maxFileSize;
 
     public FileService(FileRepository files,
+                       FileVersionRepository versions,
                        FolderRepository folders,
                        StorageService storage,
+                       TransactionTemplate transactions,
                        @Value("${app.storage.max-file-size-bytes:104857600}") long maxFileSize) {
         this.files = files;
+        this.versions = versions;
         this.folders = folders;
         this.storage = storage;
+        this.transactions = transactions;
         if (maxFileSize < 1) {
             throw new IllegalStateException("The configured maximum file size must be positive");
         }
@@ -55,30 +66,40 @@ public class FileService {
         }
 
         UUID id = UUID.randomUUID();
+        UUID versionId = UUID.randomUUID();
         UUID storageKey = UUID.randomUUID();
         FileRecord pending = new FileRecord(id, ownerId, folderId, originalName, storageKey,
-                expectedSize, "application/octet-stream", null, "pending", null, null);
-        files.createPending(pending);
+                expectedSize, "application/octet-stream", null, "pending", null, null, null);
+        FileVersionRecord pendingVersion = new FileVersionRecord(versionId, id, 1, ownerId,
+                null, storageKey, expectedSize, null, null, "pending");
+        transactions.executeWithoutResult(status -> {
+            files.createPending(pending);
+            versions.createPending(pendingVersion);
+        });
 
         boolean storageCommitted = false;
         boolean metadataReady = false;
         try (InputStream input = upload.getInputStream()) {
             StoredObject stored = storage.store(storageKey, originalName, input, expectedSize, maxFileSize);
             storageCommitted = true;
-            if (!files.markReady(id, ownerId, stored.sha256(), stored.detectedMimeType())) {
-                throw new IOException("Upload metadata could not be committed");
-            }
+            transactions.executeWithoutResult(status -> {
+                if (!versions.markReady(versionId, id, stored.sizeBytes(), stored.sha256())
+                        || !files.markReady(id, ownerId, versionId,
+                        stored.sha256(), stored.detectedMimeType())) {
+                    throw new IllegalStateException("Upload metadata could not be committed");
+                }
+            });
             metadataReady = true;
             return toResponse(files.findReadyOwned(id, ownerId)
                     .orElseThrow(() -> new IOException("Committed upload metadata could not be read")));
         } catch (ApiException exception) {
             if (!metadataReady) {
-                cleanupFailedUpload(id, storageKey, storageCommitted);
+                cleanupFailedUpload(id, ownerId, versionId, storageKey, storageCommitted);
             }
             throw exception;
         } catch (IOException | RuntimeException exception) {
             if (!metadataReady) {
-                cleanupFailedUpload(id, storageKey, storageCommitted);
+                cleanupFailedUpload(id, ownerId, versionId, storageKey, storageCommitted);
             }
             log.warn("File upload failed for metadata id {}", id, exception);
             throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "upload_failed",
@@ -118,12 +139,17 @@ public class FileService {
     public void delete(UUID id, UUID ownerId) {
         FileRecord deleting = files.markDeleting(id, ownerId).orElseThrow(() -> notFound("file"));
         try {
-            storage.delete(deleting.storageKey());
+            Set<UUID> storageKeys = new HashSet<>(versions.findStorageKeysForFile(id));
+            storageKeys.add(deleting.storageKey());
+            for (UUID storageKey : storageKeys) {
+                storage.delete(storageKey);
+            }
         } catch (IOException exception) {
             log.error("Could not remove stored object for file metadata id {}", id, exception);
             throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "delete_failed",
                     "The file could not be deleted right now. Cleanup will be retried.");
         }
+        versions.deleteAllForFile(id);
         if (!files.deleteWithStatus(id, "deleting")) {
             throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "delete_incomplete",
                     "The file was removed but its metadata cleanup will be retried.");
@@ -163,7 +189,18 @@ public class FileService {
         return files.findReadyOwned(id, ownerId).orElseThrow(() -> notFound("file"));
     }
 
-    private void cleanupFailedUpload(UUID id, UUID storageKey, boolean storageCommitted) {
+    private void cleanupFailedUpload(UUID id, UUID ownerId, UUID versionId,
+                                     UUID storageKey, boolean storageCommitted) {
+        try {
+            if (files.findReadyOwned(id, ownerId).isPresent()) {
+                // Preserve bytes if the database committed but the connection failed before reporting success.
+                return;
+            }
+        } catch (RuntimeException exception) {
+            log.warn("Could not determine whether upload {} committed; leaving bytes for reconciliation", id,
+                    exception);
+            return;
+        }
         if (storageCommitted) {
             try {
                 storage.delete(storageKey);
@@ -172,6 +209,7 @@ public class FileService {
             }
         }
         try {
+            versions.deletePending(versionId);
             files.deleteWithStatus(id, "pending");
         } catch (RuntimeException exception) {
             log.warn("Could not clean up pending metadata after failed upload {}", id, exception);

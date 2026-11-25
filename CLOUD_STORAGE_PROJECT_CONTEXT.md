@@ -2,13 +2,13 @@
 
 > **Purpose:** Self-contained context for a coding CLI agent or developer taking over this project.
 >
-> **Status date:** 2026-11-13. **Language:** English, with original Portuguese requirement IDs and Java identifiers preserved.
+> **Status date:** 2026-11-25. **Language:** English, with original Portuguese requirement IDs and Java identifiers preserved.
 >
 > **Priority of evidence:** (1) the academic requirements PDF for course scope; (2) `cloud_storage_backend_requirements_java_sql.md` for the later user-requested backend scope; (3) checked-out source and independently reproduced results; (4) proposed architecture. **Proposals are not implemented features.**
 
 ## 0. Instructions for a coding CLI agent
 
-1. Read this file completely before changing code. The exact currently supplied Java source is embedded at the end.
+1. Read this file before changing code. Appendices A/B are historical snapshots of the originally supplied Java TCP demo, not the current root Java entrypoints; checked-out source is authoritative.
 2. The **mandatory deliverable** is a simple **file-sharing/cloud storage application**: upload an existing local file to a central server; persist it; list server-side files; download the original bytes on another computer. This is **not** a collaborative Google Docs editor.
 3. The current implementation is Java: a Spring Boot HTTP API with PostgreSQL and a same-origin browser interface, plus root Java HTTP client/launcher entrypoints. Preserve this stack unless the human explicitly requests a change.
 4. The later backend requirements and the user's follow-up requests expand scope beyond the academic PDF minimum to include accounts, folders, SQL metadata, Docker PostgreSQL and a browser UI.
@@ -19,7 +19,7 @@
 9. Avoid silently expanding scope. The PDF is authoritative about must-haves and non-required features.
 10. If this file is moved into a repository, compare its embedded source snapshot to the *actual* Java files: the repository may contain newer revisions. Treat the checked-out code as authoritative for its current state, and update this context accordingly.
 
-## 0.1 Later backend request and implementation status (2026-11-13)
+## 0.1 Later backend request and implementation status (updated 2026-11-25)
 
 The user later requested a backend following `cloud_storage_backend_requirements_java_sql.md`. This explicitly expands the implementation task beyond the academic PDF's minimum and authorizes a Java SQL-backed HTTP API with accounts, ownership, folders, and file management. The user also requested integration with the root Java files and a web interface: `DocsServer.java` launches Spring Boot, `DocsClient.java` is an interactive HTTP client, and Spring Boot serves the browser app from the same origin. The old unauthenticated TCP text protocol has been removed from these entrypoints.
 
@@ -33,9 +33,13 @@ An initial backend module now exists under `backend/`:
 - Reverse-proxy compatibility: `server.forward-headers-strategy=framework` makes Spring process forwarded request headers. Exact-origin CORS remains configurable. This does not start or configure Cloudflare Tunnel; `cloudflared`, its hostname route, and Cloudflare Access policies are separate server/dashboard setup.
 - Integration test sources use Testcontainers and cover authentication/CSRF, byte integrity, owner isolation, incomplete uploads, folder rules and concurrent uploads.
 
-**Verification status:** The backend compiled and its browser page, JavaScript/CSS assets, CSRF endpoint, and unauthenticated protected endpoint were checked on 2026-11-12. On 2026-11-13, the `WEBRat` changes were merged into GitHub `main`; the final source contains Spring forwarded-header support and an exact-origin CORS allow-list. `cloudflared` is not installed or configured by the repository, and no Cloudflare tunnel or Access policy has been started or verified. Integration tests and complete browser account/upload workflows have not been run. The project-local Maven cache and tools are ignored under `backend/.tools/` and `backend/.local/`; credentials belong in the ignored root `.env`; uploaded data is under ignored `storage/`. Do not copy credentials or tunnel tokens into this context document.
+**Verification status (2026-11-25):** The existing Maven/Testcontainers integration suite passed: 8 tests, 0 failures. The runnable JAR was also exercised locally against a disposable PostgreSQL container and a new temporary storage root. Headless Chrome completed browser registration/login, upload, and download for a 262,144-byte binary file; the downloaded SHA-256 matched `8f2144a274ead978258dbbcc0b62c5b0ee7335eb2bf729fbb5ca4026af0f0a14`. The Java `DocsClient` completed registration/login, upload, list, and download for a 131,071-byte binary file; its SHA-256 matched `e76c8ea2cd8b92b8413ed9583c99d85a076bd582e32d81d20078621644caf526`.
 
-The integrated root Java entrypoints were compiled with Java 21 into `backend/target/cli`; their interactive API workflow has not been exercised, and no test suite was run for this integration. The academic requirements/status tables and TCP protocol analysis below describe the **pre-integration socket demo baseline** and are historical; the current backend, root Java entrypoints and browser UI use the HTTP API.
+The app process was restarted with the same disposable database and storage root. Both users logged in again and retrieved their files with matching checksums. User B saw only B's file, and B's attempt to download user A's file returned 404. An intentionally truncated multipart request left no file metadata, stored object, or temporary object. A `../../...` upload filename returned HTTP 400 and did not alter a sentinel file outside the storage root. The Java client now accepts any download response MIME type so JSON error responses retain their intended status instead of becoming HTTP 500 during content negotiation.
+
+These checks used an isolated local build; they do **not** verify the Ubuntu deployment, Cloudflare Tunnel, Cloudflare Access, public HTTPS, backups, or restore procedures. The tunnel and Access policy remain external and unconfigured by this repository. The disposable validation database, storage, browser profile, and fixtures were removed after the run. Credentials belong in the ignored root `.env`; do not copy credentials or tunnel tokens into this context document.
+
+Both root Java entrypoints compile with Java 21; the `DocsClient` interactive HTTP workflow has now been exercised. The academic requirements/status tables and TCP protocol analysis below describe the **pre-integration socket demo baseline** and are historical; the current backend, root Java entrypoints and browser UI use the HTTP API.
 
 ## 1. Original artifacts and provenance
 
@@ -701,18 +705,29 @@ INPUTS: Doc_Req_Eng_Software.pdf; cloud_storage_backend_requirements_java_sql.md
         DocsServer.java; DocsClient.java; backend/
 CURRENT BACKEND: Spring Boot 4.1.2 / Java 21; PostgreSQL JDBC + Flyway;
                  session auth + CSRF; owner-scoped file API; private UUID storage;
-                 nested folder API; Compose PostgreSQL volume backend_postgres_data.
-BACKEND STATUS: previously compiled and checked on port 8080 against Docker Compose;
-                Flyway V1 applied; browser and CSRF routes returned HTTP 200.
+                 nested folder API; Flyway V2 file_versions; Compose PostgreSQL
+                 volume backend_postgres_data.
+BACKEND STATUS: P0 browser/Java client validation recorded; P2 version-history
+                implementation and API documentation are present.
+P0 VALIDATION: two users registered and operated independently; both binary files
+                retained matching SHA-256 values after an application-process restart.
+                Truncated upload left no object; traversal filename was rejected.
+P2 VALIDATION: full Maven suite passed 15 tests (0 failures/errors); migration
+                backfill, v1-v4 history/restore, hashes, old-byte downloads,
+                immutable rows, stale/concurrent writes, failure cleanup, access
+                and HTTP routes tested.
+JAVA CLIENT FIX: download requests accept any MIME type so JSON errors preserve
+                  their HTTP status; cross-user download returned 404.
 PROXY STATUS: Spring forwarded-header support is present; CORS is exact-origin;
               cloudflared, Cloudflare Access, and a public hostname are not configured.
 JAVA ENTRYPOINTS: DocsServer launches the backend; DocsClient is an interactive
                   Java HTTP client with file/folder operations; both compile.
-TEST STATUS: backend integration tests and interactive client workflows not run.
+TEST STATUS: local P0 and P2 checks passed; public deployment/tunnel and
+              backup/restore validation remain outstanding.
 HISTORICAL TCP NOTES: Sections 3–7 and Appendices A/B describe pre-integration
                       code and its old line protocol, not current root sources.
-NEXT: run backend integration tests and exercise a multi-client SHA-256 upload /
-      download round-trip before claiming end-to-end acceptance.
+NEXT: validate the actual Ubuntu host, HTTPS/tunnel/access configuration, and
+      backup/restore process before public deployment.
 ```
 
 ---
