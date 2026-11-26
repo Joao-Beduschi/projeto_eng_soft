@@ -6,7 +6,14 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.forwardedUrl;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.handler;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.model;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.cloudstorage.controller.mvc.HomeController;
 import com.cloudstorage.dto.FileResponse;
 import com.cloudstorage.dto.FileVersionHistoryResponse;
 import com.cloudstorage.dto.FileVersionResponse;
@@ -14,7 +21,7 @@ import com.cloudstorage.dto.FolderResponse;
 import com.cloudstorage.exception.ApiException;
 import com.cloudstorage.model.FileRecord;
 import com.cloudstorage.model.UserAccount;
-import com.cloudstorage.model.UserPrincipal;
+import com.cloudstorage.security.UserPrincipal;
 import com.cloudstorage.repository.FileRepository;
 import com.cloudstorage.service.AuthService;
 import com.cloudstorage.service.FileService;
@@ -58,8 +65,12 @@ import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.web.context.WebApplicationContext;
 import org.springframework.web.multipart.MultipartFile;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -87,6 +98,7 @@ class CloudStorageIntegrationTest {
     @Autowired private AuthenticationManager authenticationManager;
     @Autowired private JdbcTemplate jdbc;
     @Autowired private Environment environment;
+    @Autowired private WebApplicationContext webContext;
 
     @DynamicPropertySource
     static void configureProperties(DynamicPropertyRegistry registry) {
@@ -456,6 +468,47 @@ class CloudStorageIntegrationTest {
         } finally {
             executor.shutdownNow();
         }
+    }
+
+    @Test
+    void homeSelectsTheExistingPageAndPreparesOnlyPublicAccountData() throws Exception {
+        MockMvc mvc = MockMvcBuilders.webAppContextSetup(webContext).apply(springSecurity()).build();
+        mvc.perform(get("/")).andExpect(status().isOk())
+                .andExpect(handler().handlerType(HomeController.class))
+                .andExpect(model().attributeDoesNotExist("currentUser"))
+                .andExpect(forwardedUrl("/index.html"));
+
+        UserAccount alice = user("mvc@example.com");
+        UserPrincipal principal = new UserPrincipal(alice.id(), alice.email(), alice.passwordHash());
+        mvc.perform(get("/").with(SecurityMockMvcRequestPostProcessors.user(principal)))
+                .andExpect(status().isOk())
+                .andExpect(model().attribute("currentUser", authService.accountDetails(alice.id())))
+                .andExpect(forwardedUrl("/index.html"));
+    }
+
+    @Test
+    void folderContentsAndPatchKeepOwnershipAndRootMoveSemantics() throws Exception {
+        UserAccount alice = user("owner@example.com");
+        UserAccount bob = user("other@example.com");
+        FolderResponse parent = folderService.create(alice.id(), null, "parent");
+        FolderResponse child = folderService.create(alice.id(), parent.id(), "child");
+        FileResponse file = fileService.upload(alice.id(), parent.id(),
+                new MockMultipartFile("file", "a.bin", "application/octet-stream", new byte[]{1, 2}));
+        var owner = loginClient(alice.email(), "a sufficiently long test password");
+        var other = loginClient(bob.email(), "a sufficiently long test password");
+        String contents = "/api/folders/" + parent.id() + "/contents";
+        HttpResponse<String> listing = send(owner.client(), request(contents, "GET", null, null));
+        assertEquals(200, listing.statusCode());
+        assertTrue(listing.body().contains(child.id().toString()));
+        assertTrue(listing.body().contains(file.id().toString()));
+        assertEquals(404, send(other.client(), request(contents, "GET", null, null)).statusCode());
+
+        String path = "/api/files/" + file.id();
+        assertEquals(400, send(owner.client(), request(path, "PATCH", owner.csrfToken(), "{\"ownerId\":null}")).statusCode());
+        assertEquals(200, send(owner.client(), request(path, "PATCH", owner.csrfToken(), "{\"name\":\"b.bin\"}")).statusCode());
+        assertEquals(parent.id(), fileService.get(file.id(), alice.id()).folderId());
+        assertEquals(200, send(owner.client(), request(path, "PATCH", owner.csrfToken(), "{\"folderId\":null}")).statusCode());
+        assertTrue(fileService.list(alice.id(), null).stream().anyMatch(row -> row.id().equals(file.id())));
     }
 
     private UserAccount user(String email) {

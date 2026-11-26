@@ -4,6 +4,28 @@ Spring Boot HTTP API for private file storage. PostgreSQL stores users, folders,
 
 The root-level `DocsServer.java` and `DocsClient.java` are integrated with this backend. `DocsServer` launches the Spring Boot application; `DocsClient` is an interactive Java HTTP client for account login/registration and file/folder operations. The Java client relies on the backend for authentication, authorization, SQL metadata, and file storage; it does not maintain a separate TCP storage protocol.
 
+## Task 01 — MVC architecture
+
+Previously, the browser loaded the static workspace directly and every application controller was a REST controller. The authentication controller managed the servlet session and security context, and the folder controller assembled folder contents from two services. File and folder controllers also shared PATCH parsing through the file controller. SQL and physical storage already had dedicated layers.
+
+| Package or resource | Responsibility |
+|---|---|
+| `controller.mvc` | `HomeController` handles `GET /`, prepares the authenticated `currentUser` model attribute through `AuthService`, and forwards to the existing `/index.html`. |
+| `controller.api` | Auth, file, and folder controllers bind and validate HTTP inputs, delegate operations, and build HTTP responses. `ItemPatch` parses shared PATCH input. |
+| `model`, `dto`, `security` | Domain records describe accounts, files, revisions, folders, and stored objects. DTOs define safe responses. Spring Security owns the authentication principal and filter configuration. |
+| `service` | Services coordinate account and session workflows, ownership, folder contents, transactions, and file lifecycle. `StorageService` performs physical file I/O. |
+| `repository` | JDBC repositories own SQL and row mapping. Flyway owns schema changes. PostgreSQL stores structured data and the private filesystem stores file bytes. |
+| `src/main/resources/static` | The existing HTML, CSS, and JavaScript present the interface. JavaScript continues to load workspace state through the REST API. |
+
+The MVC and REST entry points share the same services. The static view does not consume the MVC model. The Java HTTP client continues to use the existing REST routes. Thymeleaf, JPA, dependency injection review, internationalization, password recovery, profile editing, registration usability, and view reorganization are separate development stages.
+
+### Task 01 verification (2026-11-26)
+
+- The committed baseline at `e9b7b3e` compiled and passed all 15 tests in an isolated checkout. The refactored application compiled and packaged with Maven `clean package`. All 17 tests passed with zero failures, errors, or skips.
+- The two added tests cover anonymous and authenticated MVC model preparation and forwarding, folder contents and owner isolation, and file PATCH validation, rename, and explicit-null moves to root. Existing tests cover session authentication, CSRF, binary integrity, ownership, file and folder operations, and revision and migration compatibility.
+- Both root Java entrypoints compiled with Java 21. The Java client registered an account and uploaded a binary file against the baseline JAR. It logged in, listed the same file, and downloaded identical bytes after switching to the refactored JAR with the same disposable PostgreSQL 16 database and storage directory.
+- Headless Chrome exercised the refactored root page, registration and login, file selection and upload, listing, search, the download link, and logout. The downloaded bytes matched the fixture, and the download checksum matched the stored metadata.
+
 ## Assumptions recorded for this implementation
 
 - Java 21, Spring Boot 4.1.2, PostgreSQL 15 or newer, JDBC with prepared statements, and Flyway migrations.

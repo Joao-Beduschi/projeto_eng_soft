@@ -1,8 +1,9 @@
 package com.cloudstorage.service;
 
+import com.cloudstorage.dto.UserResponse;
 import com.cloudstorage.exception.ApiException;
 import com.cloudstorage.model.UserAccount;
-import com.cloudstorage.model.UserPrincipal;
+import com.cloudstorage.security.UserPrincipal;
 import com.cloudstorage.repository.UserRepository;
 import java.util.Locale;
 import java.util.UUID;
@@ -39,8 +40,9 @@ public class AuthService {
                 .orElseThrow(() -> new UsernameNotFoundException("Invalid email or password"));
     }
 
-    public UserAccount getById(UUID id) {
+    public UserResponse accountDetails(UUID id) {
         return users.findById(id)
+                .map(UserResponse::from)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "user_not_found", "User not found."));
     }
 

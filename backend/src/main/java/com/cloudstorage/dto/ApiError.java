@@ -1,4 +1,4 @@
-package com.cloudstorage.model;
+package com.cloudstorage.dto;
 
 import java.time.Instant;
 

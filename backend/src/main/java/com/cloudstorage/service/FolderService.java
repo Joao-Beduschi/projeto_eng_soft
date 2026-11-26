@@ -1,5 +1,6 @@
 package com.cloudstorage.service;
 
+import com.cloudstorage.dto.FolderContentsResponse;
 import com.cloudstorage.dto.FolderResponse;
 import com.cloudstorage.exception.ApiException;
 import com.cloudstorage.model.FolderRecord;
@@ -15,8 +16,11 @@ import org.springframework.transaction.annotation.Transactional;
 public class FolderService {
     private final FolderRepository folders;
 
-    public FolderService(FolderRepository folders) {
+    private final FileService files;
+
+    public FolderService(FolderRepository folders, FileService files) {
         this.folders = folders;
+        this.files = files;
     }
 
     @Transactional
@@ -34,6 +38,12 @@ public class FolderService {
             throw notFound();
         }
         return folders.list(ownerId, parentId).stream().map(FolderService::toResponse).toList();
+    }
+
+    @Transactional(readOnly = true)
+    public FolderContentsResponse contents(UUID id, UUID ownerId) {
+        FolderResponse folder = get(id, ownerId);
+        return new FolderContentsResponse(folder, list(ownerId, id), files.list(ownerId, id));
     }
 
     public FolderResponse get(UUID id, UUID ownerId) {

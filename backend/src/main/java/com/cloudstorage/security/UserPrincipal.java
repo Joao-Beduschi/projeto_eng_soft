@@ -1,4 +1,4 @@
-package com.cloudstorage.model;
+package com.cloudstorage.security;
 
 import java.util.Collection;
 import java.util.List;

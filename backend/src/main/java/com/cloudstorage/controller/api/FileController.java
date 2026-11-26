@@ -1,10 +1,9 @@
-package com.cloudstorage.controller;
+package com.cloudstorage.controller.api;
 
 import com.cloudstorage.dto.FileResponse;
 import com.cloudstorage.dto.FileVersionHistoryResponse;
 import com.cloudstorage.dto.FileVersionResponse;
-import com.cloudstorage.exception.ApiException;
-import com.cloudstorage.model.UserPrincipal;
+import com.cloudstorage.security.UserPrincipal;
 import com.cloudstorage.service.FileService;
 import com.cloudstorage.service.FileVersionService;
 import java.io.IOException;
@@ -12,13 +11,11 @@ import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -40,7 +37,6 @@ import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBo
 @RequestMapping("/api/files")
 public class FileController {
     private static final Logger log = LoggerFactory.getLogger(FileController.class);
-    private static final Set<String> PATCH_FIELDS = Set.of("name", "folderId");
 
     private final FileService files;
     private final FileVersionService versions;
@@ -173,19 +169,8 @@ public class FileController {
     public FileResponse patch(@AuthenticationPrincipal UserPrincipal user,
                               @PathVariable UUID id,
                               @RequestBody Map<String, Object> changes) {
-        rejectUnknownFields(changes, PATCH_FIELDS);
-        boolean hasName = changes.containsKey("name");
-        String name = null;
-        if (hasName) {
-            Object rawName = changes.get("name");
-            if (!(rawName instanceof String text)) {
-                throw badPatch("name must be a string.");
-            }
-            name = text;
-        }
-        boolean hasFolderId = changes.containsKey("folderId");
-        UUID folderId = hasFolderId ? parseUuidOrNull(changes.get("folderId"), "folderId") : null;
-        return files.patch(id, user.id(), hasName, name, hasFolderId, folderId);
+        ItemPatch patch = ItemPatch.parse(changes, "folderId");
+        return files.patch(id, user.id(), patch.hasName(), patch.name(), patch.hasDestination(), patch.destination());
     }
 
     @DeleteMapping("/{id}")
@@ -200,29 +185,5 @@ public class FileController {
         } catch (RuntimeException exception) {
             return MediaType.APPLICATION_OCTET_STREAM;
         }
-    }
-
-    static UUID parseUuidOrNull(Object value, String field) {
-        if (value == null) {
-            return null;
-        }
-        if (value instanceof String text) {
-            try {
-                return UUID.fromString(text);
-            } catch (IllegalArgumentException ignored) {
-                throw badPatch(field + " must be a UUID or null.");
-            }
-        }
-        throw badPatch(field + " must be a UUID or null.");
-    }
-
-    static void rejectUnknownFields(Map<String, Object> changes, Set<String> allowed) {
-        if (changes == null || changes.isEmpty() || !allowed.containsAll(changes.keySet())) {
-            throw badPatch("The request contains no supported fields or contains unknown fields.");
-        }
-    }
-
-    private static ApiException badPatch(String message) {
-        return new ApiException(HttpStatus.BAD_REQUEST, "invalid_patch", message);
     }
 }

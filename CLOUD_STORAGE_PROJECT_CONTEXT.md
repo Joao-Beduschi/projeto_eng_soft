@@ -41,6 +41,12 @@ These checks used an isolated local build; they do **not** verify the Ubuntu dep
 
 Both root Java entrypoints compile with Java 21; the `DocsClient` interactive HTTP workflow has now been exercised. The academic requirements/status tables and TCP protocol analysis below describe the **pre-integration socket demo baseline** and are historical; the current backend, root Java entrypoints and browser UI use the HTTP API.
 
+## 0.2 Task 01 — MVC architecture (2026-11-26)
+
+The MVC page controller now handles the browser entry point and prepares an account model before forwarding to the existing static page. The API controllers live in a separate package and retain their existing routes. Session orchestration and folder-content assembly live in services. JDBC repositories continue to own SQL, and the storage service continues to own physical file I/O.
+
+See the [Task 01 architecture and verification record](backend/README.md#task-01--mvc-architecture). The academic requirements are being addressed individually. Thymeleaf and JPA belong to later stages, alongside the remaining professor requirements.
+
 ## 1. Original artifacts and provenance
 
 | Source | What it contains | Status |
@@ -726,8 +732,9 @@ TEST STATUS: local P0 and P2 checks passed; public deployment/tunnel and
               backup/restore validation remain outstanding.
 HISTORICAL TCP NOTES: Sections 3–7 and Appendices A/B describe pre-integration
                       code and its old line protocol, not current root sources.
-NEXT: validate the actual Ubuntu host, HTTPS/tunnel/access configuration, and
-      backup/restore process before public deployment.
+NEXT ACADEMIC TASK: Task 02, Thymeleaf integration.
+DEPLOYMENT FOLLOW-UP: Ubuntu host, HTTPS/tunnel/access, and backup/restore
+                      validation are still pending.
 ```
 
 ---

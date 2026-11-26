@@ -1,10 +1,11 @@
-package com.cloudstorage.controller;
+package com.cloudstorage.controller.api;
 
 import com.cloudstorage.dto.UserResponse;
 import com.cloudstorage.exception.ApiException;
 import com.cloudstorage.model.UserAccount;
-import com.cloudstorage.model.UserPrincipal;
+import com.cloudstorage.security.UserPrincipal;
 import com.cloudstorage.service.AuthService;
+import com.cloudstorage.service.SessionService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
@@ -14,16 +15,8 @@ import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.authentication.AuthenticationManager;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
-import org.springframework.security.core.AuthenticationException;
-import org.springframework.security.core.context.SecurityContext;
-import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.web.authentication.logout.SecurityContextLogoutHandler;
-import org.springframework.security.web.context.SecurityContextRepository;
 import org.springframework.security.web.csrf.CsrfToken;
-import org.springframework.security.web.csrf.CsrfTokenRepository;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -37,18 +30,11 @@ public class AuthController {
             "^(?=[^@]{1,64}@[^@]{1,255}$)[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\\.[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+)*@(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\\.)+[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$";
 
     private final AuthService authService;
-    private final AuthenticationManager authenticationManager;
-    private final SecurityContextRepository securityContextRepository;
-    private final CsrfTokenRepository csrfTokenRepository;
+    private final SessionService sessions;
 
-    public AuthController(AuthService authService,
-                          AuthenticationManager authenticationManager,
-                          SecurityContextRepository securityContextRepository,
-                          CsrfTokenRepository csrfTokenRepository) {
+    public AuthController(AuthService authService, SessionService sessions) {
         this.authService = authService;
-        this.authenticationManager = authenticationManager;
-        this.securityContextRepository = securityContextRepository;
-        this.csrfTokenRepository = csrfTokenRepository;
+        this.sessions = sessions;
     }
 
     @GetMapping("/auth/csrf")
@@ -63,46 +49,27 @@ public class AuthController {
     @PostMapping("/auth/register")
     public ResponseEntity<UserResponse> register(@Valid @RequestBody RegisterRequest request) {
         UserAccount user = authService.register(request.email(), request.password());
-        return ResponseEntity.status(HttpStatus.CREATED).body(toResponse(user));
+        return ResponseEntity.status(HttpStatus.CREATED).body(UserResponse.from(user));
     }
 
     @PostMapping("/auth/login")
     public UserResponse login(@Valid @RequestBody LoginRequest request,
                               HttpServletRequest servletRequest,
                               HttpServletResponse servletResponse) {
-        Authentication authentication;
-        try {
-            authentication = authenticationManager.authenticate(
-                    UsernamePasswordAuthenticationToken.unauthenticated(request.email(), request.password()));
-        } catch (AuthenticationException exception) {
-            throw new ApiException(HttpStatus.UNAUTHORIZED, "invalid_credentials",
-                    "The email or password is incorrect.");
-        }
-
-        if (servletRequest.getSession(false) != null) {
-            servletRequest.changeSessionId();
-        }
-        SecurityContext context = SecurityContextHolder.createEmptyContext();
-        context.setAuthentication(authentication);
-        SecurityContextHolder.setContext(context);
-        securityContextRepository.saveContext(context, servletRequest, servletResponse);
-        csrfTokenRepository.saveToken(null, servletRequest, servletResponse);
-
-        UserPrincipal principal = (UserPrincipal) authentication.getPrincipal();
-        return toResponse(authService.getById(principal.id()));
+        return sessions.login(request.email(), request.password(), servletRequest, servletResponse);
     }
 
     @PostMapping("/auth/logout")
     public ResponseEntity<Void> logout(HttpServletRequest request, HttpServletResponse response,
                                        Authentication authentication) {
-        new SecurityContextLogoutHandler().logout(request, response, authentication);
+        sessions.logout(request, response, authentication);
         return ResponseEntity.noContent().build();
     }
 
     @GetMapping("/users/me")
     public UserResponse me(Authentication authentication) {
         UserPrincipal principal = requireUser(authentication.getPrincipal());
-        return toResponse(authService.getById(principal.id()));
+        return authService.accountDetails(principal.id());
     }
 
     private UserPrincipal requireUser(Object principal) {
@@ -110,10 +77,6 @@ public class AuthController {
             return user;
         }
         throw new ApiException(HttpStatus.UNAUTHORIZED, "invalid_session", "The session is not valid.");
-    }
-
-    private static UserResponse toResponse(UserAccount user) {
-        return new UserResponse(user.id(), user.email(), user.createdAt());
     }
 
     public record CsrfResponse(String headerName, String parameterName, String token) {

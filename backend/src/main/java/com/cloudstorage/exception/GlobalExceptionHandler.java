@@ -1,6 +1,6 @@
 package com.cloudstorage.exception;
 
-import com.cloudstorage.model.ApiError;
+import com.cloudstorage.dto.ApiError;
 import jakarta.servlet.http.HttpServletRequest;
 import java.time.Instant;
 import org.slf4j.Logger;
