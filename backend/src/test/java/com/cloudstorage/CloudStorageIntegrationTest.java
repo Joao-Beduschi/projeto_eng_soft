@@ -8,7 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.forwardedUrl;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.view;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.handler;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.model;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -37,6 +37,7 @@ import java.io.FilterInputStream;
 import java.net.CookieManager;
 import java.net.CookiePolicy;
 import java.net.URI;
+import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -471,19 +472,102 @@ class CloudStorageIntegrationTest {
     }
 
     @Test
-    void homeSelectsTheExistingPageAndPreparesOnlyPublicAccountData() throws Exception {
+    void homeResolvesThymeleafAndRendersOwnerDataBeforeJavaScriptRuns() throws Exception {
         MockMvc mvc = MockMvcBuilders.webAppContextSetup(webContext).apply(springSecurity()).build();
-        mvc.perform(get("/")).andExpect(status().isOk())
+        String anonymous = mvc.perform(get("/")).andExpect(status().isOk())
                 .andExpect(handler().handlerType(HomeController.class))
                 .andExpect(model().attributeDoesNotExist("currentUser"))
-                .andExpect(forwardedUrl("/index.html"));
+                .andExpect(view().name("index")).andReturn().getResponse().getContentAsString();
+        assertTrue(anonymous.contains("action=\"/login\""));
+        assertFalse(anonymous.contains("id=\"app-view\""));
 
         UserAccount alice = user("mvc@example.com");
+        UserAccount bob = user("other-mvc@example.com");
+        FolderResponse folder = folderService.create(alice.id(), null, "Design folder");
+        FolderResponse child = folderService.create(alice.id(), folder.id(), "Nested folder");
+        fileService.upload(bob.id(), null, new MockMultipartFile("file", "private-bob.bin", null, new byte[]{8}));
+        fileService.upload(alice.id(), null, new MockMultipartFile("file", "owner-root.bin", null, new byte[]{1}));
+        byte[] bytes = {1, 2, 3};
+        FileResponse file = fileService.upload(alice.id(), folder.id(),
+                new MockMultipartFile("file", "<img onerror=alert(1)>.png", "image/png", bytes));
+
         UserPrincipal principal = new UserPrincipal(alice.id(), alice.email(), alice.passwordHash());
-        mvc.perform(get("/").with(SecurityMockMvcRequestPostProcessors.user(principal)))
-                .andExpect(status().isOk())
+        var owner = SecurityMockMvcRequestPostProcessors.user(principal);
+        String root = mvc.perform(get("/").with(owner)).andExpect(status().isOk())
                 .andExpect(model().attribute("currentUser", authService.accountDetails(alice.id())))
-                .andExpect(forwardedUrl("/index.html"));
+                .andExpect(view().name("index")).andReturn().getResponse().getContentAsString();
+        assertTrue(root.contains("mvc@example.com"));
+        assertTrue(root.contains("owner-root.bin"));
+        assertTrue(root.contains("/folders/" + folder.id()));
+        assertFalse(root.contains("private-bob.bin"));
+        assertFalse(root.contains(alice.passwordHash()));
+
+        String nested = mvc.perform(get("/folders/{id}", folder.id()).with(owner))
+                .andExpect(status().isOk()).andExpect(view().name("index"))
+                .andReturn().getResponse().getContentAsString();
+        assertTrue(nested.contains("Design folder"));
+        assertTrue(nested.contains("Nested folder"));
+        assertTrue(nested.contains("/folders/" + child.id()));
+        assertTrue(nested.contains("/api/files/" + file.id() + "/download"));
+        assertTrue(nested.contains("&lt;img onerror=alert(1)&gt;.png"));
+        assertFalse(nested.contains("<img onerror=alert(1)>"));
+        assertEquals(sha256(bytes), fileService.get(file.id(), alice.id()).sha256());
+        assertArrayEquals(bytes, download(file.id(), alice.id()));
+
+        mvc.perform(get("/files")).andExpect(status().isUnauthorized());
+        mvc.perform(get("/folders/{id}", folder.id())).andExpect(status().isUnauthorized());
+        mvc.perform(get("/folders/{id}", folder.id()).with(SecurityMockMvcRequestPostProcessors
+                .user(new UserPrincipal(bob.id(), bob.email(), bob.passwordHash()))))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void renderedAuthFormsRegisterLoginAndLogoutWithSessionCsrf() throws Exception {
+        HttpClient client = HttpClient.newBuilder().cookieHandler(new CookieManager(null, CookiePolicy.ACCEPT_ALL)).build();
+        String credentials = "email=browser%40example.com&password="
+                + URLEncoder.encode("a sufficiently long test password", StandardCharsets.UTF_8);
+        var registration = send(client, request("/register", "GET", null, null));
+        assertEquals(200, registration.statusCode());
+        assertTrue(registration.body().contains("action=\"/register\""));
+        assertEquals(403, send(client, formRequest("/register", credentials)).statusCode());
+        assertEquals(403, send(client, formRequest("/register", credentials + "&_csrf=invalid")).statusCode());
+        String token = formToken(registration.body());
+        var bad = send(client, formRequest("/register", "email=invalid&password=short&_csrf=" + token));
+        assertEquals(400, bad.statusCode());
+        assertTrue(bad.body().contains("Check the email address"));
+        var registered = send(client, formRequest("/register", credentials + "&_csrf=" + token));
+        assertEquals(302, registered.statusCode());
+        assertTrue(registered.headers().firstValue("Location").orElseThrow().endsWith("/files"));
+
+        var workspace = send(client, request("/files", "GET", null, null));
+        assertEquals(200, workspace.statusCode());
+        assertTrue(workspace.body().contains("browser@example.com"));
+        assertTrue(workspace.body().contains("Your account is ready."));
+        assertEquals(403, send(client, formRequest("/logout", "_csrf=" + token)).statusCode());
+        assertEquals(403, send(client, formRequest("/logout", "")).statusCode());
+        assertEquals(302, send(client, formRequest("/logout", "_csrf=" + formToken(workspace.body()))).statusCode());
+        assertEquals(401, send(client, request("/files", "GET", null, null)).statusCode());
+
+        var login = send(client, request("/login", "GET", null, null));
+        assertEquals(200, login.statusCode());
+        assertTrue(login.body().contains("action=\"/login\""));
+        assertEquals(401, send(client, formRequest("/login",
+                "email=browser%40example.com&password=wrong&_csrf=" + formToken(login.body()))).statusCode());
+        assertEquals(302, send(client, formRequest("/login", credentials + "&_csrf=" + formToken(login.body())))
+                .statusCode());
+        assertEquals(200, send(client, request("/api/users/me", "GET", null, null)).statusCode());
+    }
+
+    private HttpRequest formRequest(String path, String body) {
+        return HttpRequest.newBuilder(URI.create(baseUrl() + path))
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .POST(HttpRequest.BodyPublishers.ofString(body)).build();
+    }
+
+    private static String formToken(String html) {
+        Matcher matcher = Pattern.compile("name=\"_csrf\" value=\"([^\"]+)\"").matcher(html);
+        assertTrue(matcher.find(), "Thymeleaf POST form should include a CSRF input");
+        return matcher.group(1);
     }
 
     @Test

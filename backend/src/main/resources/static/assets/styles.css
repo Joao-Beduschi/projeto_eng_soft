@@ -164,6 +164,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
   background: transparent;
   font-size: 12px;
   font-weight: 700;
+  text-align: center;
+  text-decoration: none;
 }
 .auth-tab.is-active { color: #254b9e; background: white; box-shadow: 0 1px 4px rgba(19,34,61,.09); }
 .auth-form { display: flex; flex-direction: column; }
@@ -241,6 +243,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
   font-size: 12px;
   font-weight: 650;
 }
+.side-link { text-decoration: none; }
 .side-link svg { width: 18px; height: 18px; }
 .side-link:hover { color: white; background: rgba(255,255,255,.07); }
 .side-link.is-selected { color: white; background: #243b63; }
@@ -329,6 +332,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
   background: none;
   text-overflow: ellipsis;
   white-space: nowrap;
+  text-decoration: none;
 }
 .breadcrumb-button:hover { color: var(--blue); }
 .breadcrumb-button.is-current { color: #24334a; font-weight: 750; }
@@ -427,6 +431,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
   color: inherit;
   background: transparent;
   text-align: left;
+  text-decoration: none;
 }
 .folder-symbol {
   display: grid;

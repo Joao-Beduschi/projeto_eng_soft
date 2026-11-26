@@ -6,6 +6,8 @@ The root-level `DocsServer.java` and `DocsClient.java` are integrated with this 
 
 ## Task 01 — MVC architecture
 
+This section records the architecture at the end of Task 01. The current browser routes and view are described under Task 02.
+
 Previously, the browser loaded the static workspace directly and every application controller was a REST controller. The authentication controller managed the servlet session and security context, and the folder controller assembled folder contents from two services. File and folder controllers also shared PATCH parsing through the file controller. SQL and physical storage already had dedicated layers.
 
 | Package or resource | Responsibility |
@@ -25,6 +27,31 @@ The MVC and REST entry points share the same services. The static view does not 
 - The two added tests cover anonymous and authenticated MVC model preparation and forwarding, folder contents and owner isolation, and file PATCH validation, rename, and explicit-null moves to root. Existing tests cover session authentication, CSRF, binary integrity, ownership, file and folder operations, and revision and migration compatibility.
 - Both root Java entrypoints compiled with Java 21. The Java client registered an account and uploaded a binary file against the baseline JAR. It logged in, listed the same file, and downloaded identical bytes after switching to the refactored JAR with the same disposable PostgreSQL 16 database and storage directory.
 - Headless Chrome exercised the refactored root page, registration and login, file selection and upload, listing, search, the download link, and logout. The downloaded bytes matched the fixture, and the download checksum matched the stored metadata.
+
+## Task 02 — Thymeleaf integration
+
+Spring Boot manages `spring-boot-starter-thymeleaf` and resolves [templates/index.html](src/main/resources/templates/index.html) using its default configuration. CSS and JavaScript remain under [static/assets](src/main/resources/static/assets). The former static HTML moved to the template, and `/index.html` redirects to `/`.
+
+| MVC route | Behavior and model |
+|---|---|
+| `GET /` | Renders sign-in for anonymous requests or the root workspace for authenticated requests. |
+| `GET /login`, `GET /register` | Renders the corresponding auth panel with `registering`. Authenticated requests redirect to the workspace. |
+| `POST /login`, `POST /register` | Shares credential validation and session services with the API. Errors render `formError` and the entered `email`. Success redirects to `/files` with a flash `notice`. |
+| `GET /files`, `GET /folders/{folderId}` | Renders owner-scoped `currentUser`, `currentFolder`, `breadcrumbs`, `folders`, `files`, and `itemCount`. |
+| `POST /logout` | Invalidates the session and redirects to sign-in with a flash `notice`. |
+
+Thymeleaf renders the account display, breadcrumbs, folder cards, file rows and metadata, download links, counts, and empty states in the response HTML. Auth forms use the existing Spring Security session CSRF protection through Thymeleaf-generated hidden fields. The browser can sign in, browse folders, and follow download links with JavaScript disabled.
+
+JavaScript filters rendered rows for search, opens dialogs, asks for confirmation, and handles file selection and drag-and-drop. Upload, rename, move, delete, and folder creation use the existing CSRF-protected REST endpoints and refresh the listing from server-rendered HTML. These actions and search require JavaScript. The Java client continues to use the same REST API.
+
+### Task 02 verification (2026-11-26)
+
+- The Task 01 baseline at `f3de2d1` passed 17 tests. Maven `clean package` passed all 18 tests after Thymeleaf integration, with zero failures, errors, or skips.
+- MockMvc verified template resolution, owner-scoped root and nested folder HTML, download links, and escaping of a markup-like filename. HTTP tests submitted rendered forms and verified missing, invalid, and rotated CSRF tokens, validation errors, login, and logout.
+- Headless Chrome verified registration, login, logout, folder creation and navigation, file upload, search, download with matching SHA-256, and rename, move, and deletion for files and folders. It also followed folder and breadcrumb links and read file rows with JavaScript disabled.
+- Both Java entrypoints compiled with Java 21. The Java client signed in, listed, and downloaded an existing file after switching from a pre-Thymeleaf build to the Task 02 JAR with the same isolated PostgreSQL database and storage directory. It also uploaded and downloaded a new file against the Task 02 JAR. Both downloads matched the original bytes.
+
+Task 02 is complete. JDBC remains in use until Task 03 — JPA Migration. Internationalization, account improvements, the dependency injection review, and comprehensive page organization remain separate tasks.
 
 ## Assumptions recorded for this implementation
 

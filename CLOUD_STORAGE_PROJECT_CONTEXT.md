@@ -43,9 +43,15 @@ Both root Java entrypoints compile with Java 21; the `DocsClient` interactive HT
 
 ## 0.2 Task 01 — MVC architecture (2026-11-26)
 
-The MVC page controller now handles the browser entry point and prepares an account model before forwarding to the existing static page. The API controllers live in a separate package and retain their existing routes. Session orchestration and folder-content assembly live in services. JDBC repositories continue to own SQL, and the storage service continues to own physical file I/O.
+Task 01 introduced an MVC page controller that prepared an account model and forwarded to the then-static page. The API controllers moved to a separate package and retained their routes. Session orchestration and folder-content assembly moved into services. JDBC repositories continue to own SQL, and the storage service continues to own physical file I/O.
 
-See the [Task 01 architecture and verification record](backend/README.md#task-01--mvc-architecture). The academic requirements are being addressed individually. Thymeleaf and JPA belong to later stages, alongside the remaining professor requirements.
+See the [Task 01 architecture and verification record](backend/README.md#task-01--mvc-architecture).
+
+## 0.3 Task 02 — Thymeleaf integration (2026-11-26)
+
+Task 02 is complete. The browser now receives server-rendered authentication forms, workspace listings, and folder navigation from the MVC controller and Thymeleaf. Login, registration, and logout submit CSRF-protected browser forms using the existing account and session services. JavaScript enhances server-rendered listings with search, drag-and-drop, and file and folder actions through the original API.
+
+See the [Task 02 routes, models, and verification record](backend/README.md#task-02--thymeleaf-integration). JDBC remains in use until Task 03 — JPA Migration. The remaining academic corrections are separate tasks.
 
 ## 1. Original artifacts and provenance
 
@@ -174,12 +180,13 @@ The original TCP demo supplied **two Java source files**. They are now integrate
     src/main/java/com/cloudstorage/...
     src/main/resources/application.properties
     src/main/resources/db/migration/V1__initial_schema.sql
-    src/main/resources/static/ # browser interface served by Spring Boot
+    src/main/resources/templates/ # Thymeleaf browser view
+    src/main/resources/static/    # public CSS and JavaScript assets
     src/test/java/com/cloudstorage/CloudStorageIntegrationTest.java
     target/cli/              # compiled root Java entrypoints; ignored by Git
 ```
 
-The former root TCP server and line-based protocol have been replaced. `DocsServer` invokes the backend's Maven `spring-boot:run` goal and loads the ignored root `.env`; `DocsClient` uses JDK `HttpClient`, session cookies, and CSRF tokens to call the backend API. The backend owns authentication, SQL metadata, file storage and authorization. Spring Boot also serves the browser interface from its static resources, using the same-origin session and CSRF flow.
+The former root TCP server and line-based protocol have been replaced. `DocsServer` invokes the backend's Maven `spring-boot:run` goal and loads the ignored root `.env`; `DocsClient` uses JDK `HttpClient`, session cookies, and CSRF tokens to call the backend API. The backend owns authentication, SQL metadata, file storage and authorization. Spring MVC renders the browser interface with Thymeleaf using the same-origin session and CSRF flow.
 
 The two root entrypoints rely only on the **Java standard library**. The backend remains a separate Maven module using Spring Boot, PostgreSQL, JDBC and Flyway.
 
@@ -250,7 +257,7 @@ This line-based text protocol is no longer used by the current root Java files. 
 - Uploads use multipart HTTP with the original file bytes; downloads stream response bytes to the destination path.
 - `CLOUD_STORAGE_API_URL` can override the default API origin (`http://localhost:8080`).
 - The Java entrypoints compiled successfully with Java 21. Their interactive API workflow has not been exercised; the integration-test suite was not run.
-- The browser interface lives in `backend/src/main/resources/static/` and supports registration/login, nested folders, search, file upload/download, rename/move/delete, and drag-and-drop uploads.
+- The browser view lives in `backend/src/main/resources/templates/`, with CSS and JavaScript in `static/assets/`. It supports registration/login, nested folders, search, file upload/download, rename/move/delete, and drag-and-drop uploads.
 
 ### 5.6 How to compile and run the integrated Java entrypoints
 
@@ -732,7 +739,7 @@ TEST STATUS: local P0 and P2 checks passed; public deployment/tunnel and
               backup/restore validation remain outstanding.
 HISTORICAL TCP NOTES: Sections 3–7 and Appendices A/B describe pre-integration
                       code and its old line protocol, not current root sources.
-NEXT ACADEMIC TASK: Task 02, Thymeleaf integration.
+NEXT ACADEMIC TASK: Task 03, JPA Migration. JDBC remains in use.
 DEPLOYMENT FOLLOW-UP: Ubuntu host, HTTPS/tunnel/access, and backup/restore
                       validation are still pending.
 ```
