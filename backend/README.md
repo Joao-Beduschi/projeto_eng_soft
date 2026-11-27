@@ -192,6 +192,44 @@ A packaged build also upgraded a populated V2 database to V3, sent a Portuguese 
 
 Task 06 is complete.
 
+## Task 07 — User profile management
+
+The workspace links to **My profile**. The page shows the account's registered email, creation date, and optional display name. Names support Unicode, are limited to 100 characters, reject control characters, and are trimmed before saving. Submitting a blank name clears it. Name updates preserve the current session.
+
+| MVC route | Behavior |
+|---|---|
+| `GET /profile` | Renders the authenticated user's profile with a safe DTO. |
+| `POST /profile` | Saves or clears the display name. |
+| `POST /profile/email` | Verifies the current password and sends an expiring confirmation link to the proposed address. The existing address remains active. |
+| `GET /profile/email/confirm` | Requires sign-in as the initiating account. Validates the link and stages a confirmation form in that session. GET leaves the token available. |
+| `POST /profile/email/confirm` | Uses the staged confirmation and CSRF token to apply the email change. Sends a separate notice to the previous address. |
+| `POST /profile/password` | Verifies the current password and checks the new password and confirmation using the existing policy. |
+
+`UserProfileController` renders `templates/users/profile.html` and `templates/users/confirm-email.html` through Thymeleaf. `UserProfileService` derives the account UUID from the authenticated principal. Password changes use the existing PBKDF2 encoder. Both pages and account emails support Brazilian Portuguese and English.
+
+Flyway V4 adds the nullable `users.display_name` column and a separate `email_change_tokens` table. The associated JPA entity binds each SHA-256 token hash to the user, proposed address, expiry, and credential version. The confirmation form carries an opaque session-bound identifier. Email confirmation rechecks ownership, expiry, credential version, and address availability under a row lock. PostgreSQL's case-insensitive unique index resolves competing claims. The original account UUID, file and folder ownership, revision uploader UUIDs, and stored bytes remain intact. `/api/users/me` retains its existing response fields.
+
+Changing the registered email or password invalidates both token types and increments the credential version in one transaction. The initiating browser is signed out immediately. The account's other sessions lose access on their next request. Password recovery also invalidates outstanding email-change tokens. A queued recovery request rechecks the registered email before issuing a token. Hourly cleanup clears obsolete verification records after the rate-limit window.
+
+### Local verification and SMTP
+
+Use the [Task 06 SMTP settings](#smtp-configuration) with a local inbox and disposable account. `EMAIL_CHANGE_EXPIRATION_MINUTES` defaults to 30. Email requests use the existing bounded mail worker and the configured per-account issuance limits. Email and password submissions that reach current-password verification share a process-local limit of ten attempts per account per ten minutes. The process-local limit resets when the application restarts.
+
+1. Sign in, open **My profile**, and save a display name.
+2. Request a new address with the current password. Check that the old address remains active.
+3. Open the confirmation email in the browser where the initiating account is signed in. Confirm the change, then sign in with the new address.
+4. Change the password from the profile and sign in with the replacement password. Open or download an existing file using the browser or Java client.
+
+Email changes require configured SMTP. A mail provider failure may delay delivery and the account continues to use its existing address until confirmation. Keep verification query strings out of proxy and access logs. The user must sign in before opening a confirmation link in a different browser.
+
+### Task 07 test results
+
+The Task 06 baseline at `0d58287` passed 24 tests. The updated build passed 28 with Maven `clean package`. The added integration coverage includes profile privacy and escaping, CSRF, local SMTP, single-use verification, expired and wrong-purpose tokens, competing email claims and password changes, session revocation, and preservation of file bytes and revision authorship.
+
+A packaged-build smoke test upgraded a populated V3 database to V4, saved a Unicode name, verified a new address through local SMTP, and changed the password through localized forms. `DocsClient` rejected the previous credentials and downloaded the original file byte for byte with the new credentials. External SMTP delivery was outside this verification.
+
+Task 07 is complete.
+
 ## Assumptions recorded for this implementation
 
 - Java 21, Spring Boot 4.1.2, PostgreSQL 15 or newer, Spring Data JPA with Hibernate, and Flyway migrations.

@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="pt-BR" th:lang="${#locale.toLanguageTag()}" xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title th:text="#{profile.email.confirm}"></title>
+  <link rel="stylesheet" th:href="@{/assets/styles.css}">
+</head>
+<body>
+  <main class="auth-panel recovery-panel">
+    <div class="auth-panel-inner">
+      <div class="auth-heading">
+        <h2 th:text="#{profile.email.confirm}"></h2>
+      </div>
+      <p th:if="${invalidConfirmation}" role="alert" th:text="#{profile.email.invalid_link}"></p>
+      <p th:each="error : ${formErrors}" class="field-hint field-hint-error" role="alert" th:text="${error}"></p>
+      <form th:if="${confirmationId}" class="auth-form" method="post" th:action="@{/profile/email/confirm}">
+        <input type="hidden" name="confirmationId" th:value="${confirmationId}">
+        <p th:text="#{profile.email.confirm_instructions(${newEmail})}"></p>
+        <button class="button button-primary" type="submit" th:text="#{profile.email.confirm}"></button>
+      </form>
+      <a class="recovery-link" th:href="@{/profile}" th:text="#{profile.title}"></a>
+    </div>
+  </main>
+</body>
+</html>

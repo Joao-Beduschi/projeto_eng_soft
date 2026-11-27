@@ -6,11 +6,11 @@ import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
 public final class AuthRequests {
-    private static final String EMAIL_PATTERN =
+    static final String EMAIL_PATTERN =
             "^(?=[^@]{1,64}@[^@]{1,255}$)[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\\.[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+)*@(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\\.)+[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$";
 
     private static final int PASSWORD_MIN = 12;
-    private static final int PASSWORD_MAX = 128;
+    static final int PASSWORD_MAX = 128;
 
     private AuthRequests() {
     }
@@ -36,6 +36,10 @@ public final class AuthRequests {
             @Size(min = PASSWORD_MIN, max = PASSWORD_MAX, message = "{validation.password.register_length}") String password,
             @NotBlank(message = "{auth.reset.confirm_required}")
             @Size(max = PASSWORD_MAX, message = "{validation.password.login_length}") String confirmation) {
+        @Override
+        public String toString() {
+            return "ResetPasswordRequest[redacted]";
+        }
     }
 
     public record LoginRequest(

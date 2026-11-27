@@ -140,6 +140,7 @@
           </th:block>
         </nav>
         <div class="topbar-right">
+          <a class="profile-nav" th:href="@{/profile}" th:text="#{profile.title}"></a>
           <nav th:replace="~{::languageSwitch}"></nav>
           <span class="secure-label"><span class="secure-dot"></span><span th:text="#{workspace.secure}"></span></span>
           <form method="post" th:action="@{/logout}">

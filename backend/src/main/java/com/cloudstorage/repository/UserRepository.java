@@ -1,5 +1,6 @@
 package com.cloudstorage.repository;
 
+import com.cloudstorage.dto.UserProfileResponse;
 import com.cloudstorage.model.UserAccount;
 import com.cloudstorage.repository.entity.UserEntity;
 import jakarta.persistence.LockModeType;
@@ -20,6 +21,12 @@ public interface UserRepository extends JpaRepository<UserEntity, UUID> {
 
     @Query("select u.credentialVersion from UserEntity u where u.id = :id")
     Optional<Long> findCredentialVersion(@Param("id") UUID id);
+
+    @Query("""
+            select new com.cloudstorage.dto.UserProfileResponse(u.displayName, u.email, u.createdAt)
+            from UserEntity u where u.id = :id
+            """)
+    Optional<UserProfileResponse> findProfile(@Param("id") UUID id);
 
     default UserAccount insert(UUID id, String email, String passwordHash) {
         return saveAndFlush(new UserEntity(new UserAccount(id, email, passwordHash, null))).snapshot();

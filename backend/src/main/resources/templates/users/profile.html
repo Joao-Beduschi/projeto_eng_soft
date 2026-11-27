@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="pt-BR" th:lang="${#locale.toLanguageTag()}" xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title th:text="#{profile.title}"></title>
+  <link rel="stylesheet" th:href="@{/assets/styles.css}">
+  <script type="module" th:src="@{/assets/validation.js}"></script>
+</head>
+<body>
+  <main class="workspace-content profile-page">
+    <header class="page-heading">
+      <div>
+        <a class="recovery-link" th:href="@{/files}" th:text="#{files.title}"></a>
+        <h1 th:text="#{profile.title}"></h1>
+      </div>
+      <nav class="language-switch" th:aria-label="#{language.label}">
+        <a th:href="@{/profile(lang='pt-BR')}" lang="pt-BR" hreflang="pt-BR"
+           th:aria-current="${#locale.toLanguageTag() == 'pt-BR' ? 'true' : null}">Português (Brasil)</a>
+        <a th:href="@{/profile(lang='en')}" lang="en" hreflang="en"
+           th:aria-current="${#locale.toLanguageTag() == 'en' ? 'true' : null}">English</a>
+      </nav>
+    </header>
+    <p th:if="${notice}" role="status" th:text="#{${notice}}"></p>
+    <p class="field-hint field-hint-error" role="alert" th:each="error : ${formErrors}" th:text="${error}"></p>
+
+    <section class="file-browser profile-section" aria-labelledby="profile-account">
+      <h2 id="profile-account" th:text="#{profile.account}"></h2>
+      <dl class="profile-details">
+        <dt th:text="#{auth.email}"></dt>
+        <dd id="profile-email" th:text="${profile.email}"></dd>
+        <dt th:text="#{profile.created_at}"></dt>
+        <dd th:text="${#temporals.format(profile.createdAt, #messages.msg('format.file_date'))}"></dd>
+      </dl>
+      <form class="auth-form" method="post" th:action="@{/profile}">
+        <label class="field-label" for="display-name" th:text="#{profile.display_name}"></label>
+        <input id="display-name" name="displayName" autocomplete="nickname" maxlength="100"
+               th:value="${profile.displayName}" th:data-validation-length="#{profile.name.length}">
+        <button class="button button-primary" type="submit" th:text="#{profile.save}"></button>
+      </form>
+    </section>
+
+    <section class="file-browser profile-section" aria-labelledby="profile-change-email">
+      <h2 id="profile-change-email" th:text="#{profile.email.change}"></h2>
+      <p th:text="#{profile.email.instructions}"></p>
+      <form class="auth-form" method="post" th:action="@{/profile/email}">
+        <label class="field-label" for="new-email" th:text="#{profile.email.new}"></label>
+        <input id="new-email" name="newEmail" type="email" autocomplete="email" maxlength="320"
+               th:data-validation-required="#{validation.email.required}"
+               th:data-validation-type="#{validation.email.invalid}"
+               th:data-validation-length="#{validation.email.length}" required>
+        <label class="field-label" for="email-current-password" th:text="#{profile.password.current}"></label>
+        <input id="email-current-password" name="currentPassword" type="password" autocomplete="current-password"
+               maxlength="128" th:data-validation-required="#{profile.password.current_required}" required>
+        <button class="button button-primary" type="submit" th:text="#{profile.email.request}"></button>
+      </form>
+    </section>
+
+    <section class="file-browser profile-section" aria-labelledby="profile-change-password">
+      <h2 id="profile-change-password" th:text="#{profile.password.change}"></h2>
+      <p th:text="#{profile.password.instructions}"></p>
+      <form class="auth-form" method="post" th:action="@{/profile/password}">
+        <label class="field-label" for="password-current" th:text="#{profile.password.current}"></label>
+        <input id="password-current" name="currentPassword" type="password" autocomplete="current-password"
+               maxlength="128" th:data-validation-required="#{profile.password.current_required}" required>
+        <label class="field-label" for="new-password" th:text="#{auth.reset.new_password}"></label>
+        <input id="new-password" name="newPassword" type="password" autocomplete="new-password"
+               minlength="12" maxlength="128" aria-describedby="profile-password-policy"
+               th:data-validation-required="#{validation.password.required}"
+               th:data-validation-length="#{validation.password.register_length}" required>
+        <p id="profile-password-policy" class="field-hint" th:text="#{auth.register.password_hint}"></p>
+        <label class="field-label" for="confirm-password" th:text="#{auth.reset.confirm_password}"></label>
+        <input id="confirm-password" name="confirmation" type="password" autocomplete="new-password"
+               maxlength="128" th:data-validation-required="#{auth.reset.confirm_required}" required>
+        <button class="button button-primary" type="submit" th:text="#{profile.password.update}"></button>
+      </form>
+    </section>
+  </main>
+</body>
+</html>

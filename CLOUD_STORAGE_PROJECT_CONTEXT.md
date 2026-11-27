@@ -71,6 +71,10 @@ Task 05 is complete. The browser supports Brazilian Portuguese and English from 
 
 Task 06 is complete. Password recovery uses localized Thymeleaf forms and configured SMTP. Flyway V3 adds hashed reset tokens and a credential version for revoking old sessions. The atomic reset updates the existing account, preserving file and folder ownership and revision history. See the [configuration and verification record](backend/README.md#task-06--password-recovery).
 
+## 0.8 Task 07 — User profile management
+
+Task 07 is complete. Authenticated users can edit their display name, verify a new email address, and change their password. Flyway V4 adds a nullable display name and separate email verification tokens. Sensitive changes preserve account IDs and revoke outdated sessions and outstanding account tokens. The [profile routes, security policy, and verification record](backend/README.md#task-07--user-profile-management) describe the current behavior.
+
 ## 1. Original artifacts and provenance
 
 | Source | What it contains | Status |
@@ -757,7 +761,7 @@ TEST STATUS: local P0 and P2 checks passed; public deployment/tunnel and
               backup/restore validation remain outstanding.
 HISTORICAL TCP NOTES: Sections 3–7 and Appendices A/B describe pre-integration
                       code and its old line protocol, not current root sources.
-NEXT ACADEMIC TASK: Task 07, user profile and personal data updates.
+NEXT ACADEMIC TASK: Task 08, registration and authentication review.
 DEPLOYMENT FOLLOW-UP: Ubuntu host, HTTPS/tunnel/access, and backup/restore
                       validation are still pending.
 ```

@@ -20,6 +20,9 @@ public class UserEntity extends AssignedIdEntity {
     @Column(name = "created_at", insertable = false, nullable = false)
     private OffsetDateTime createdAt;
 
+    @Column(name = "display_name", length = 100)
+    private String displayName;
+
     @Column(name = "credential_version", nullable = false)
     private long credentialVersion;
 
@@ -30,6 +33,15 @@ public class UserEntity extends AssignedIdEntity {
     public void resetPassword(String encodedPassword) {
         passwordHash = encodedPassword;
         credentialVersion++;
+    }
+
+    public void changeEmail(String newEmail) {
+        email = newEmail;
+        credentialVersion++;
+    }
+
+    public void updateDisplayName(String name) {
+        displayName = name;
     }
 
     protected UserEntity() {

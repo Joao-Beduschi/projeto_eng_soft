@@ -662,3 +662,23 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
   color: var(--blue-dark);
   font-weight: 650;
 }
+
+.profile-nav { color: var(--blue-dark); font-size: 12px; white-space: nowrap; }
+.profile-page { width: min(680px, 100%); margin: auto; }
+.profile-section { padding: 24px; margin-bottom: 18px; }
+.profile-section h2 { margin: 0 0 12px; font-size: 18px; }
+.profile-section > p { color: var(--muted); margin: 0 0 16px; }
+.profile-section .button { align-self: flex-start; }
+.profile-details {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px 18px;
+  margin-bottom: 20px;
+}
+.profile-details dt { font-weight: 650; }
+.profile-details dd { margin: 0; overflow-wrap: anywhere; }
+
+@media (max-width: 480px) {
+  .topbar-right { gap: 8px; }
+  .topbar-right > .language-switch { max-width: 96px; gap: 3px; }
+}

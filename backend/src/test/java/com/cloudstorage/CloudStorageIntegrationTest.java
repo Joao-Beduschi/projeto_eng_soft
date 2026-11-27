@@ -16,6 +16,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.cloudstorage.controller.mvc.HomeController;
 import com.cloudstorage.dto.AuthRequests.ResetPasswordRequest;
+import com.cloudstorage.dto.ProfileRequests.ChangePasswordRequest;
 import com.cloudstorage.dto.FileResponse;
 import com.cloudstorage.dto.FileVersionHistoryResponse;
 import com.cloudstorage.dto.FileVersionResponse;
@@ -31,6 +32,8 @@ import com.cloudstorage.repository.FolderRepository;
 import com.cloudstorage.repository.UserRepository;
 import com.cloudstorage.repository.PasswordResetTokenRepository;
 import com.cloudstorage.repository.entity.PasswordResetToken;
+import com.cloudstorage.repository.entity.EmailChangeToken;
+import com.cloudstorage.repository.EmailChangeTokenRepository;
 import com.cloudstorage.service.AuthService;
 import com.cloudstorage.service.FileService;
 import com.cloudstorage.service.FileReconciliationService;
@@ -38,6 +41,7 @@ import com.cloudstorage.service.FileVersionService;
 import com.cloudstorage.service.FolderService;
 import com.cloudstorage.service.StorageService;
 import com.cloudstorage.service.PasswordResetService;
+import com.cloudstorage.service.UserProfileService;
 import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.IOException;
@@ -123,6 +127,8 @@ class CloudStorageIntegrationTest {
     @Autowired private WebApplicationContext webContext;
 
     @Autowired private PasswordResetService recovery;
+    @Autowired private UserProfileService profiles;
+    @Autowired private EmailChangeTokenRepository emailChangeTokens;
     @Autowired private PasswordResetTokenRepository resetTokens;
     @Autowired private ThreadPoolTaskExecutor passwordRecoveryExecutor;
 
@@ -857,6 +863,8 @@ class CloudStorageIntegrationTest {
         assertEquals(1L, resetTokens.count());
         String otherToken = "C".repeat(43);
         seedToken(owner.id(), otherToken, Instant.now().minusSeconds(60), Instant.now().plusSeconds(600));
+        seedEmailToken(owner.id(), "pending-recovery@example.com", "L".repeat(43), 0,
+                Instant.now(), Instant.now().plusSeconds(600));
 
         String resetPath = link.getRawPath() + "?" + link.getRawQuery();
         var opened = send(browser, request(resetPath, "GET", null, null));
@@ -881,6 +889,8 @@ class CloudStorageIntegrationTest {
         assertEquals(401, send(browser, request("/api/users/me", "GET", null, null)).statusCode());
         assertEquals(400, send(browser, request(resetPath, "GET", null, null)).statusCode());
         assertFalse(recovery.isValid(otherToken));
+        assertEquals(0, jdbc.queryForObject("select count(*) from email_change_tokens where user_id = ? and used_at is null",
+                Integer.class, owner.id()));
         assertEquals(401, send(old.client(), request("/api/files", "GET", null, null)).statusCode());
         assertEquals(401, send(anotherOld.client(), request("/files", "GET", null, null)).statusCode());
         assertEquals(200, send(unrelated.client(), request("/api/users/me", "GET", null, null)).statusCode());
@@ -927,6 +937,282 @@ class CloudStorageIntegrationTest {
         }
         assertFalse(recovery.isValid(token));
         assertEquals(1L, userRepository.findCredentialVersion(owner.id()).orElseThrow());
+    }
+
+    @Test
+    void profileIsPrivateAndDisplayNamesAreValidatedEscapedAndSessionSafe() throws Exception {
+        UserAccount owner = user("profile-owner@example.com");
+        UserAccount other = user("private-profile@example.com");
+        var anonymous = HttpClient.newHttpClient();
+        assertEquals(401, send(anonymous, request("/profile", "GET", null, null)).statusCode());
+        assertEquals(401, send(anonymous, request("/profile/email/confirm", "GET", null, null)).statusCode());
+
+        var session = loginClient(owner.email(), "a sufficiently long test password");
+        var page = send(session.client(), request("/profile?lang=en&userId=" + other.id(), "GET", null, null));
+        assertEquals(200, page.statusCode());
+        assertTrue(page.body().contains("My profile"));
+        assertTrue(page.body().contains(owner.email()));
+        assertFalse(page.body().contains(other.email()));
+        assertFalse(page.body().contains(owner.passwordHash()));
+        assertFalse(page.body().contains("credentialVersion"));
+        assertNull(userRepository.findProfile(owner.id()).orElseThrow().displayName());
+        String csrf = formToken(page.body());
+        assertEquals(403, send(session.client(), formRequest("/profile", "displayName=Forbidden")).statusCode());
+
+        String name = "Érica 🌱 <img onerror=alert(1)>";
+        assertEquals(302, send(session.client(), formRequest("/profile",
+                "displayName=" + encoded("  " + name + "  ") + "&userId=" + other.id() + "&_csrf=" + csrf)).statusCode());
+        assertEquals(name, userRepository.findProfile(owner.id()).orElseThrow().displayName());
+        assertNull(userRepository.findProfile(other.id()).orElseThrow().displayName());
+        var saved = send(session.client(), request("/profile?lang=pt-BR", "GET", null, null));
+        assertTrue(saved.body().contains("Meu perfil"));
+        assertTrue(saved.body().contains("&lt;img onerror=alert(1)&gt;"));
+        assertFalse(saved.body().contains("<img onerror=alert(1)>"));
+
+        var longName = send(session.client(), formRequest("/profile", "displayName=" + "a".repeat(101) + "&_csrf=" + csrf));
+        assertEquals(400, longName.statusCode());
+        assertTrue(longName.body().contains("100 caracteres"));
+        assertEquals(400, send(session.client(), formRequest("/profile", "displayName=A%0AB&_csrf=" + csrf)).statusCode());
+        assertEquals(302, send(session.client(), formRequest("/profile", "displayName=+++&_csrf=" + csrf)).statusCode());
+        assertNull(userRepository.findProfile(owner.id()).orElseThrow().displayName());
+        assertEquals(200, send(session.client(), request("/api/users/me", "GET", null, null)).statusCode());
+        assertEquals(0L, userRepository.findCredentialVersion(owner.id()).orElseThrow());
+    }
+
+    @Test
+    void emailChangeRequiresMailboxAndSameAccountAndPreservesFilesAndAuthorship() throws Exception {
+        String password = "a sufficiently long test password";
+        UserAccount owner = user("profile-old@example.com");
+        UserAccount other = user("profile-unrelated@example.com");
+        FolderResponse folder = folderService.create(owner.id(), null, "Owned folder");
+        byte[] bytes = {0, 3, -1, 17};
+        FileResponse file = fileService.upload(owner.id(), folder.id(),
+                new MockMultipartFile("file", "profile-owned.bin", null, bytes));
+
+        var ownerSession = loginClient(owner.email(), password);
+        var oldSession = loginClient(owner.email(), password);
+        var otherSession = loginClient(other.email(), password);
+        var page = send(ownerSession.client(), request("/profile?lang=pt-BR", "GET", null, null));
+        String csrf = formToken(page.body());
+        String current = "&currentPassword=" + encoded(password) + "&_csrf=" + csrf;
+        assertEquals(403, send(ownerSession.client(), formRequest("/profile/email", "newEmail=ignored")).statusCode());
+        var wrong = send(ownerSession.client(), formRequest("/profile/email",
+                "newEmail=next%40example.com&currentPassword=wrong&_csrf=" + csrf));
+        assertEquals(400, wrong.statusCode());
+        assertTrue(wrong.body().contains("A senha atual está incorreta."));
+        assertEquals(400, send(ownerSession.client(), formRequest("/profile/email", "newEmail=invalid" + current)).statusCode());
+        assertEquals(409, send(ownerSession.client(), formRequest("/profile/email",
+                "newEmail=" + encoded(other.email().toUpperCase(java.util.Locale.ROOT)) + current)).statusCode());
+
+        assertEquals(302, send(ownerSession.client(), formRequest("/profile/email",
+                "newEmail=NEXT%40example.com" + current)).statusCode());
+        assertEquals(429, send(ownerSession.client(), formRequest("/profile/email",
+                "newEmail=again%40example.com" + current)).statusCode());
+        assertEquals(owner.email(), userRepository.findProfile(owner.id()).orElseThrow().email());
+        assertEquals(200, send(oldSession.client(), request("/api/users/me", "GET", null, null)).statusCode());
+
+        var delivery = INBOX.receive();
+        assertEquals("next@example.com", delivery.getAllRecipients()[0].toString());
+        assertEquals("Confirme a alteração de e-mail no Cloud Storage", delivery.getSubject());
+        URI link = mailLink(delivery);
+        assertEquals("localhost", link.getHost());
+        assertEquals("/profile/email/confirm", link.getPath());
+        assertTrue(link.getRawQuery().contains("lang=pt-BR"));
+        String token = resetToken(link);
+        assertEquals(sha256(token.getBytes(StandardCharsets.US_ASCII)), jdbc.queryForObject(
+                "select token_hash from email_change_tokens where user_id = ?", String.class, owner.id()));
+        assertFalse(recovery.isValid(token));
+
+        Instant now = Instant.now();
+        String resetSecret = "D".repeat(43);
+        seedToken(owner.id(), resetSecret, now, now.plusSeconds(120));
+        String expired = "E".repeat(43);
+        seedEmailToken(owner.id(), "expired@example.com", expired, 0, now.minusSeconds(300), now.minusSeconds(20));
+        String otherPending = "F".repeat(43);
+        seedEmailToken(owner.id(), "other-pending@example.com", otherPending, 0, now, now.plusSeconds(120));
+
+        String path = link.getRawPath() + "?" + link.getRawQuery();
+        for (String rejected : List.of(resetSecret, expired, "invalid")) {
+            assertEquals(400, send(ownerSession.client(),
+                    request("/profile/email/confirm?token=" + rejected, "GET", null, null)).statusCode());
+        }
+        assertEquals(400, send(otherSession.client(), request(path, "GET", null, null)).statusCode());
+        var verification = send(ownerSession.client(), request(path, "GET", null, null));
+        assertEquals(200, verification.statusCode());
+        assertEquals("no-referrer", verification.headers().firstValue("Referrer-Policy").orElseThrow());
+        assertFalse(verification.body().contains(token));
+        assertTrue(verification.body().contains("Confirme next@example.com"));
+        assertEquals(owner.email(), userRepository.findProfile(owner.id()).orElseThrow().email());
+        assertEquals(1, jdbc.queryForObject("select count(*) from email_change_tokens where token_hash = ? and used_at is null",
+                Integer.class, sha256(token.getBytes(StandardCharsets.US_ASCII))));
+        String challenge = confirmationId(verification.body());
+        assertEquals(403, send(ownerSession.client(), formRequest("/profile/email/confirm",
+                "confirmationId=" + challenge)).statusCode());
+        assertEquals(400, send(otherSession.client(), formRequest("/profile/email/confirm",
+                "confirmationId=" + challenge + "&_csrf=" + otherSession.csrfToken())).statusCode());
+        var confirmed = send(ownerSession.client(), formRequest("/profile/email/confirm",
+                "confirmationId=" + challenge + "&_csrf=" + formToken(verification.body())));
+        assertEquals(302, confirmed.statusCode());
+        assertTrue(confirmed.headers().firstValue("Location").orElseThrow().endsWith("/login"));
+        assertFalse(confirmed.headers().firstValue("Location").orElseThrow().contains(token));
+        var notification = INBOX.receive();
+        assertEquals(owner.email(), notification.getAllRecipients()[0].toString());
+        assertFalse(((String) notification.getContent()).contains(token));
+
+        assertEquals(401, send(ownerSession.client(), request("/api/users/me", "GET", null, null)).statusCode());
+        assertEquals(401, send(oldSession.client(), request("/api/users/me", "GET", null, null)).statusCode());
+        assertEquals(200, send(otherSession.client(), request("/api/users/me", "GET", null, null)).statusCode());
+        assertFalse(recovery.isValid(resetSecret));
+        assertEquals(0, jdbc.queryForObject("select count(*) from email_change_tokens where user_id = ? and used_at is null",
+                Integer.class, owner.id()));
+        assertLoginRejected(owner.email(), password);
+
+        var fresh = loginClient("next@example.com", password);
+        var me = send(fresh.client(), request("/api/users/me", "GET", null, null));
+        assertTrue(me.body().contains(owner.id().toString()));
+        assertTrue(me.body().contains("next@example.com"));
+        assertEquals(owner.createdAt(), userRepository.findProfile(owner.id()).orElseThrow().createdAt());
+        assertFalse(me.body().contains("displayName"));
+        assertEquals(400, send(fresh.client(), request(path, "GET", null, null)).statusCode());
+        assertEquals(400, send(fresh.client(), request("/profile/email/confirm?token=" + otherPending, "GET", null, null)).statusCode());
+        assertEquals(folder.id(), fileService.get(file.id(), owner.id()).folderId());
+        assertEquals(sha256(bytes), fileService.get(file.id(), owner.id()).sha256());
+        assertEquals(owner.id(), fileVersionService.list(file.id(), owner.id()).versions().getFirst().uploaderUserId());
+        var download = fresh.client().send(request("/api/files/" + file.id() + "/download", "GET", null, null),
+                HttpResponse.BodyHandlers.ofByteArray());
+        assertArrayEquals(bytes, download.body());
+    }
+
+    @Test
+    void passwordChangeChecksCurrentCredentialsAndRevokesSessionsAndBothTokenTypes() throws Exception {
+        String oldPassword = "a sufficiently long test password";
+        String replacement = "a different profile password";
+        UserAccount owner = user("profile-password@example.com");
+        UserAccount other = user("profile-other-session@example.com");
+        var session = loginClient(owner.email(), oldPassword);
+        var oldSession = loginClient(owner.email(), oldPassword);
+        var unrelated = loginClient(other.email(), oldPassword);
+        Instant now = Instant.now();
+        seedToken(owner.id(), "G".repeat(43), now, now.plusSeconds(120));
+        seedEmailToken(owner.id(), "next-password@example.com", "H".repeat(43), 0, now, now.plusSeconds(120));
+        seedEmailToken(owner.id(), "stale-version@example.com", "I".repeat(43), -1, now, now.plusSeconds(120));
+        assertEquals(400, send(session.client(), request("/profile/email/confirm?token=" + "I".repeat(43), "GET", null, null))
+                .statusCode());
+        String csrf = "&_csrf=" + session.csrfToken();
+        assertEquals(403, send(session.client(), formRequest("/profile/password", "currentPassword=" + encoded(oldPassword))).statusCode());
+        assertEquals(400, send(session.client(), formRequest("/profile/password",
+                "currentPassword=" + encoded(oldPassword) + "&newPassword=short&confirmation=short" + csrf)).statusCode());
+        var mismatch = send(session.client(), formRequest("/profile/password",
+                "currentPassword=" + encoded(oldPassword) + "&newPassword=" + encoded(replacement) + "&confirmation=wrong" + csrf));
+        assertEquals(400, mismatch.statusCode());
+        assertTrue(mismatch.body().contains("As senhas não coincidem."));
+        assertFalse(mismatch.body().contains(replacement));
+        String proposed = "&newPassword=" + encoded(replacement) + "&confirmation=" + encoded(replacement);
+        assertEquals(400, send(session.client(), formRequest("/profile/password", "currentPassword=wrong" + proposed + csrf)).statusCode());
+        assertEquals(302, send(session.client(), formRequest("/profile/password",
+                "currentPassword=" + encoded(oldPassword) + proposed + csrf)).statusCode());
+
+        assertEquals(401, send(session.client(), request("/api/users/me", "GET", null, null)).statusCode());
+        assertEquals(401, send(oldSession.client(), request("/api/users/me", "GET", null, null)).statusCode());
+        assertEquals(200, send(unrelated.client(), request("/api/users/me", "GET", null, null)).statusCode());
+        assertFalse(recovery.isValid("G".repeat(43)));
+        assertEquals(0, jdbc.queryForObject("select count(*) from email_change_tokens where user_id = ? and used_at is null",
+                Integer.class, owner.id()));
+        assertLoginRejected(owner.email(), oldPassword);
+        var fresh = loginClient(owner.email(), replacement);
+        assertTrue(send(fresh.client(), request("/api/users/me", "GET", null, null)).body().contains(owner.id().toString()));
+    }
+
+    @Test
+    void concurrentClaimsAndCredentialChangesHaveOnlyOneWinner() throws Exception {
+        UserAccount left = user("profile-race-left@example.com");
+        UserAccount right = user("profile-race-right@example.com");
+        String shared = "profile-race-target@example.com";
+        Instant now = Instant.now();
+        String leftToken = "J".repeat(43);
+        String rightToken = "K".repeat(43);
+        seedEmailToken(left.id(), shared, leftToken, 0, now, now.plusSeconds(120));
+        seedEmailToken(right.id(), shared, rightToken, 0, now, now.plusSeconds(120));
+        UserPrincipal leftPrincipal = new UserPrincipal(left.id(), left.email(), null, 0);
+        UserPrincipal rightPrincipal = new UserPrincipal(right.id(), right.email(), null, 0);
+        var leftConfirmation = profiles.prepareConfirmation(leftPrincipal, leftToken).orElseThrow();
+        var rightConfirmation = profiles.prepareConfirmation(rightPrincipal, rightToken).orElseThrow();
+
+        var start = new CountDownLatch(1);
+        try (ExecutorService pool = Executors.newFixedThreadPool(2)) {
+            Future<Integer> a = pool.submit(() -> {
+                start.await();
+                return statusOf(() -> profiles.confirmEmailChange(leftPrincipal, leftConfirmation, java.util.Locale.ENGLISH));
+            });
+            Future<Integer> b = pool.submit(() -> {
+                start.await();
+                return statusOf(() -> profiles.confirmEmailChange(rightPrincipal, rightConfirmation, java.util.Locale.ENGLISH));
+            });
+            start.countDown();
+            assertEquals(java.util.Set.of(200, 409), java.util.Set.of(a.get(10, TimeUnit.SECONDS), b.get(10, TimeUnit.SECONDS)));
+        }
+        INBOX.receive();
+        assertEquals(1, jdbc.queryForObject("select count(*) from users where lower(email) = ?", Integer.class, shared));
+        seedEmailToken(left.id(), "obsolete@example.com", "M".repeat(43), 0,
+                now.minusSeconds(7200), now.minusSeconds(3600));
+        profiles.cleanup();
+        assertEquals(0, jdbc.queryForObject("select count(*) from email_change_tokens where new_email = ?",
+                Integer.class, "obsolete@example.com"));
+
+        UserAccount account = user("profile-password-race@example.com");
+        UserPrincipal principal = new UserPrincipal(account.id(), account.email(), null, 0);
+        var gate = new CountDownLatch(1);
+        String current = "a sufficiently long test password";
+        try (ExecutorService pool = Executors.newFixedThreadPool(2)) {
+            Future<Integer> a = pool.submit(() -> {
+                gate.await();
+                return statusOf(() -> profiles.changePassword(principal, new ChangePasswordRequest(current,
+                        new ResetPasswordRequest("first alternative password", "first alternative password"))));
+            });
+            Future<Integer> b = pool.submit(() -> {
+                gate.await();
+                return statusOf(() -> profiles.changePassword(principal, new ChangePasswordRequest(current,
+                        new ResetPasswordRequest("second alternative password", "second alternative password"))));
+            });
+            gate.countDown();
+            assertEquals(java.util.Set.of(200, 401), java.util.Set.of(a.get(10, TimeUnit.SECONDS), b.get(10, TimeUnit.SECONDS)));
+        }
+        assertEquals(1L, userRepository.findCredentialVersion(account.id()).orElseThrow());
+    }
+
+    private void seedEmailToken(UUID user, String email, String token, long version, Instant created, Instant expires)
+            throws Exception {
+        emailChangeTokens.saveAndFlush(new EmailChangeToken(user, email,
+                sha256(token.getBytes(StandardCharsets.US_ASCII)), version, created, expires));
+    }
+
+    private static URI mailLink(jakarta.mail.internet.MimeMessage message) throws Exception {
+        String content = (String) message.getContent();
+        return URI.create(content.lines().filter(line -> line.startsWith("http")).findFirst().orElseThrow());
+    }
+
+    private static String confirmationId(String html) {
+        Matcher matcher = Pattern.compile("name=\"confirmationId\" value=\"([a-f0-9-]{36})\"").matcher(html);
+        assertTrue(matcher.find(), "Confirmation page must include an opaque form identifier");
+        return matcher.group(1);
+    }
+
+    private static String encoded(String value) {
+        return URLEncoder.encode(value, StandardCharsets.UTF_8);
+    }
+
+    private void assertLoginRejected(String email, String password) {
+        assertThrows(BadCredentialsException.class, () -> authenticationManager.authenticate(
+                UsernamePasswordAuthenticationToken.unauthenticated(email, password)));
+    }
+
+    private static int statusOf(Runnable action) {
+        try {
+            action.run();
+            return 200;
+        } catch (ApiException exception) {
+            return exception.status().value();
+        }
     }
 
     private String resetToken(URI link) {
