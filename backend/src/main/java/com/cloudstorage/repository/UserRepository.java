@@ -18,6 +18,9 @@ public interface UserRepository extends JpaRepository<UserEntity, UUID> {
     @Query("select u from UserEntity u where u.id = :id")
     Optional<UserEntity> findForUpdate(@Param("id") UUID id);
 
+    @Query("select u.credentialVersion from UserEntity u where u.id = :id")
+    Optional<Long> findCredentialVersion(@Param("id") UUID id);
+
     default UserAccount insert(UUID id, String email, String passwordHash) {
         return saveAndFlush(new UserEntity(new UserAccount(id, email, passwordHash, null))).snapshot();
     }

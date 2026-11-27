@@ -654,3 +654,11 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
   text-decoration: underline;
 }
 .topbar-right > .language-switch { flex-shrink: 0; }
+
+.recovery-panel { min-height: 100vh; }
+.recovery-link {
+  display: inline-block;
+  margin-top: 14px;
+  color: var(--blue-dark);
+  font-weight: 650;
+}

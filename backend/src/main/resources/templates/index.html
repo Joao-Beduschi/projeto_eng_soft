@@ -81,6 +81,7 @@
                  th:placeholder="#{auth.password.placeholder}" required>
           <p id="password-hint" class="field-hint" th:if="${registering}" th:text="#{auth.register.password_hint}"></p>
           <button id="auth-submit" class="button button-primary button-wide" type="submit" th:text="${registering} ? #{auth.register.submit} : #{auth.login.submit}"></button>
+          <a class="recovery-link" th:unless="${registering}" th:href="@{/forgot-password}" th:text="#{auth.forgot.link}"></a>
           <p class="auth-privacy" th:text="#{auth.privacy}"></p>
         </form>
       </div>

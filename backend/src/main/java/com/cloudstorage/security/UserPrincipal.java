@@ -11,16 +11,22 @@ import org.springframework.security.core.userdetails.UserDetails;
 public final class UserPrincipal implements UserDetails, CredentialsContainer {
     private final UUID id;
     private final String email;
+    private final long credentialVersion;
     private String passwordHash;
 
-    public UserPrincipal(UUID id, String email, String passwordHash) {
+    public UserPrincipal(UUID id, String email, String passwordHash, long credentialVersion) {
         this.id = id;
         this.email = email;
         this.passwordHash = passwordHash;
+        this.credentialVersion = credentialVersion;
     }
 
     public UUID id() {
         return id;
+    }
+
+    public long credentialVersion() {
+        return credentialVersion;
     }
 
     @Override

@@ -151,6 +151,47 @@ Headless Chrome switched languages on sign-in and inside a nested folder, verifi
 
 Task 05 is complete.
 
+## Task 06 — Password recovery
+
+The sign-in page links to `/forgot-password`. The recovery page and the emailed `/reset-password` form use CSRF protection and the existing Portuguese and English message bundles. A validly formatted request receives the same confirmation whether it is accepted, throttled, or associated with an account.
+
+Flyway V3 adds `password_reset_tokens` and a credential version on `users`. Reset secrets contain 32 random bytes, and PostgreSQL stores only their SHA-256 hashes. Opening a link leaves the token usable. Submitting a valid password consumes the token, invalidates the account's other reset tokens, and updates the PBKDF2 hash and credential version in one transaction. The user's ID and storage ownership are preserved. Previously authenticated sessions for that account lose access on their next request. Requests already in progress can finish. Users sign in again with the new password.
+
+Email is queued with bounded capacity and sent only after the token commits. The default limits are one token per account per 60 seconds, five per account per rolling hour, and 60 requests per minute per application process. Per-account limits use PostgreSQL and survive a restart. The global limit and pending delivery queue are process-local. If the process stops before delivery, the requester can retry after the cooldown. Invalid reset secrets are rejected before PBKDF2. Hourly cleanup removes expired or used tokens after the rate-limit window. Recovery failures do not affect sign-in.
+
+### SMTP configuration
+
+| Variable | Purpose |
+|---|---|
+| `APP_BASE_URL` | Trusted application origin, with an optional deployment path. Defaults to `http://localhost:8080`. HTTPS is required off loopback. |
+| `SMTP_HOST`, `SMTP_PORT` | SMTP server and port. The port defaults to 587. |
+| `SMTP_FROM` | Sender address approved by the SMTP provider. |
+| `SMTP_USERNAME`, `SMTP_PASSWORD` | SMTP credentials, supplied through the environment or ignored local configuration. |
+| `SMTP_AUTH`, `SMTP_STARTTLS` | Default to `true`. STARTTLS is required when enabled, with certificate hostname checks. Plain, unauthenticated SMTP is supported for loopback development only. |
+| `PASSWORD_RESET_EXPIRATION_MINUTES` | Link lifetime. Defaults to 30 minutes. |
+| `PASSWORD_RESET_MIN_INTERVAL_SECONDS`, `PASSWORD_RESET_PER_ACCOUNT_PER_HOUR`, `PASSWORD_RESET_GLOBAL_PER_MINUTE` | Recovery rate limits. |
+
+For a local SMTP inbox configured on loopback port 1025, set these example values and use a disposable account you control.
+
+```dotenv
+APP_BASE_URL=http://localhost:8080
+SMTP_HOST=127.0.0.1
+SMTP_PORT=1025
+SMTP_FROM=noreply@example.test
+SMTP_AUTH=false
+SMTP_STARTTLS=false
+```
+
+Recovery sends mail only when `SMTP_HOST` and `SMTP_FROM` are configured. SMTP connection, read, and write timeouts are five seconds each. The app neither displays nor logs raw reset links. Recovery responses set `Cache-Control: no-store` and `Referrer-Policy: no-referrer`. Keep reset query strings out of reverse-proxy and access logs.
+
+### Task 06 verification
+
+The Task 05 baseline passed 22 tests. Maven `clean package` passed 24 tests after the change. The recovery tests used a local SMTP inbox and covered generic confirmation, delivery, hashed storage, expiry, cleanup, throttling, CSRF, confirmation mismatch, concurrent redemption, revocation of old sessions, and preservation of existing files and revisions.
+
+A packaged build also upgraded a populated V2 database to V3, sent a Portuguese recovery email to an isolated loopback SMTP inbox, and completed the reset through the MVC forms. `DocsClient` rejected the old password and downloaded byte-identical data with the new password. External SMTP delivery remains unverified.
+
+Task 06 is complete.
+
 ## Assumptions recorded for this implementation
 
 - Java 21, Spring Boot 4.1.2, PostgreSQL 15 or newer, Spring Data JPA with Hibernate, and Flyway migrations.
@@ -164,7 +205,7 @@ Task 05 is complete.
 - Duplicate names are allowed within a folder. Each upload gets a separate ID.
 - Deleting a nonempty folder returns `409 Conflict`. Move operations reject direct and indirect cycles.
 - The browser UI and API use the same origin, so the normal browser interface does not need CORS. For a separately hosted frontend, set `CORS_ALLOWED_ORIGINS` to comma-separated exact origins; wildcard credentialed CORS is not enabled.
-- File revision history is supported for uploaded files. Sharing, public links, previews, quotas and password recovery are out of scope.
+- File revision history is supported for uploaded files. Password recovery uses configured SMTP. Sharing, public links, previews, and quotas remain outside the current implementation.
 
 ## Run locally
 
@@ -396,4 +437,4 @@ Flyway does not automatically roll back applied SQL migrations. For an applicati
 - Failed uploads remove pending rows/temporary objects. Startup reconciliation retries stale uploads/deletions and removes unreferenced UUID objects.
 - Deletion first changes metadata to `deleting`; failed disk cleanup is retried during startup reconciliation.
 - Folder moves serialize per owner and check descendants recursively to reject cycles.
-- `server.forward-headers-strategy=framework` enables forwarded-header handling, but this repository does not configure or run `cloudflared`, create a Cloudflare Access policy, or automatically validate Access tokens. Do not publish a public hostname until Cloudflare Access is configured. Rate limiting, account recovery, persistent session storage, quotas, and cloud object storage are also not configured.
+- `server.forward-headers-strategy=framework` enables forwarded-header handling. The repository leaves `cloudflared`, the Cloudflare Access policy, and Access token validation to deployment. Targeted rate limiting applies to password recovery. General request rate limiting, persistent session storage, quotas, and cloud object storage remain pending.

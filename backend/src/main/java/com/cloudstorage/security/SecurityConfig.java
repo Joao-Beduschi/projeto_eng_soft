@@ -1,5 +1,6 @@
 package com.cloudstorage.security;
 
+import com.cloudstorage.repository.UserRepository;
 import com.cloudstorage.service.AuthService;
 import java.util.Arrays;
 import org.springframework.beans.factory.annotation.Value;
@@ -18,6 +19,7 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.logout.SecurityContextLogoutHandler;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.security.web.context.SecurityContextRepository;
+import org.springframework.security.web.context.SecurityContextHolderFilter;
 import org.springframework.security.web.csrf.HttpSessionCsrfTokenRepository;
 import org.springframework.security.web.csrf.CsrfTokenRepository;
 import org.springframework.web.cors.CorsConfiguration;
@@ -66,8 +68,11 @@ public class SecurityConfig {
                                             SecurityContextRepository securityContextRepository,
                                             CsrfTokenRepository csrfTokenRepository,
                                             CorsConfigurationSource corsConfigurationSource,
-                                            ApiSecurityErrors securityErrors) throws Exception {
+                                            ApiSecurityErrors securityErrors,
+                                            UserRepository users,
+                                            SecurityContextLogoutHandler logoutHandler) throws Exception {
         http
+                .addFilterAfter(new CredentialVersionFilter(users, logoutHandler), SecurityContextHolderFilter.class)
                 .cors(cors -> cors.configurationSource(corsConfigurationSource))
                 .csrf(csrf -> csrf.csrfTokenRepository(csrfTokenRepository))
                 .securityContext(context -> context.securityContextRepository(securityContextRepository))
@@ -77,8 +82,8 @@ public class SecurityConfig {
                 .requestCache(cache -> cache.disable())
                 .authorizeHttpRequests(authorize -> authorize
                         .requestMatchers("/", "/index.html", "/assets/**", "/favicon.ico").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/auth/csrf", "/login", "/register").permitAll()
-                        .requestMatchers(HttpMethod.POST, "/login", "/register").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/auth/csrf", "/login", "/register", "/forgot-password", "/reset-password").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/login", "/register", "/forgot-password", "/reset-password").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/auth/register", "/api/auth/login").permitAll()
                         .anyRequest().authenticated())
                 .exceptionHandling(errors -> errors

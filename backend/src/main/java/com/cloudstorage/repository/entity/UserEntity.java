@@ -20,6 +20,18 @@ public class UserEntity extends AssignedIdEntity {
     @Column(name = "created_at", insertable = false, nullable = false)
     private OffsetDateTime createdAt;
 
+    @Column(name = "credential_version", nullable = false)
+    private long credentialVersion;
+
+    public long credentialVersion() {
+        return credentialVersion;
+    }
+
+    public void resetPassword(String encodedPassword) {
+        passwordHash = encodedPassword;
+        credentialVersion++;
+    }
+
     protected UserEntity() {
     }
 

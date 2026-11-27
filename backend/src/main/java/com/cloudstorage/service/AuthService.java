@@ -40,8 +40,11 @@ public class AuthService {
     }
 
     public UserDetailsService userDetailsService() {
-        return email -> users.findByEmail(normalizeEmail(email))
-                .map(user -> new UserPrincipal(user.id(), user.email(), user.passwordHash()))
+        return email -> users.findByNormalizedEmail(normalizeEmail(email))
+                .map(entity -> {
+                    UserAccount user = entity.snapshot();
+                    return new UserPrincipal(user.id(), user.email(), user.passwordHash(), entity.credentialVersion());
+                })
                 .orElseThrow(() -> new UsernameNotFoundException("Invalid email or password"));
     }
 

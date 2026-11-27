@@ -47,7 +47,7 @@ public class LocaleConfig implements WebMvcConfigurer {
         languageSwitch.setHttpMethods("GET");
         languageSwitch.setIgnoreInvalidLocale(true);
         registry.addInterceptor(languageSwitch)
-                .addPathPatterns("/", "/login", "/register", "/files", "/folders/{folderId}");
+                .addPathPatterns("/", "/login", "/register", "/files", "/folders/{folderId}", "/forgot-password", "/reset-password");
     }
 
     private static Locale supportedLocale(String value) {

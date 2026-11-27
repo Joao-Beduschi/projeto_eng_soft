@@ -97,7 +97,7 @@ A REST API is recommended for a separate frontend/backend design, but REST is no
 | `file_permissions` | User-to-file sharing/access rights | P3, not in MVP |
 | `file_versions` | Immutable historical revisions and current-revision pointer target | P2, authorized follow-on |
 | `audit_logs` | Security-sensitive activity logging | Recommended for production |
-| `password_reset_tokens` | Password recovery | Only if feature implemented |
+| `password_reset_tokens` | Time-limited password reset token hashes | Implemented in Task 06 |
 
 Relationships:
 

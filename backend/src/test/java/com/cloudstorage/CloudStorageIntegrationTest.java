@@ -15,6 +15,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.cloudstorage.controller.mvc.HomeController;
+import com.cloudstorage.dto.AuthRequests.ResetPasswordRequest;
 import com.cloudstorage.dto.FileResponse;
 import com.cloudstorage.dto.FileVersionHistoryResponse;
 import com.cloudstorage.dto.FileVersionResponse;
@@ -28,12 +29,15 @@ import com.cloudstorage.repository.FileRepository;
 import com.cloudstorage.repository.FileVersionRepository;
 import com.cloudstorage.repository.FolderRepository;
 import com.cloudstorage.repository.UserRepository;
+import com.cloudstorage.repository.PasswordResetTokenRepository;
+import com.cloudstorage.repository.entity.PasswordResetToken;
 import com.cloudstorage.service.AuthService;
 import com.cloudstorage.service.FileService;
 import com.cloudstorage.service.FileReconciliationService;
 import com.cloudstorage.service.FileVersionService;
 import com.cloudstorage.service.FolderService;
 import com.cloudstorage.service.StorageService;
+import com.cloudstorage.service.PasswordResetService;
 import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.IOException;
@@ -52,6 +56,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.time.OffsetDateTime;
+import java.time.Instant;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.UUID;
@@ -62,11 +67,13 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.core.env.Environment;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -91,6 +98,8 @@ import org.testcontainers.utility.DockerImageName;
 class CloudStorageIntegrationTest {
     private static final Path STORAGE_ROOT = createTemporaryStorageRoot();
 
+    private static final LocalSmtpInbox INBOX = new LocalSmtpInbox();
+
     @Container
     private static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer(
             DockerImageName.parse("postgres:16-alpine"))
@@ -113,12 +122,28 @@ class CloudStorageIntegrationTest {
     @Autowired private Environment environment;
     @Autowired private WebApplicationContext webContext;
 
+    @Autowired private PasswordResetService recovery;
+    @Autowired private PasswordResetTokenRepository resetTokens;
+    @Autowired private ThreadPoolTaskExecutor passwordRecoveryExecutor;
+
+    @AfterAll
+    static void closeInbox() throws IOException {
+        INBOX.close();
+    }
+
     @DynamicPropertySource
     static void configureProperties(DynamicPropertyRegistry registry) {
         registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
         registry.add("spring.datasource.username", POSTGRES::getUsername);
         registry.add("spring.datasource.password", POSTGRES::getPassword);
         registry.add("app.storage.root", () -> STORAGE_ROOT.toString());
+        registry.add("spring.mail.host", () -> "127.0.0.1");
+        registry.add("spring.mail.port", INBOX::port);
+        registry.add("spring.mail.properties[mail.smtp.auth]", () -> false);
+        registry.add("spring.mail.properties[mail.smtp.starttls.enable]", () -> false);
+        registry.add("spring.mail.properties[mail.smtp.starttls.required]", () -> false);
+        registry.add("app.recovery.base-url", () -> "http://localhost:8080");
+        registry.add("app.recovery.from", () -> "noreply@example.test");
     }
 
     @BeforeEach
@@ -503,7 +528,7 @@ class CloudStorageIntegrationTest {
         FileResponse file = fileService.upload(alice.id(), folder.id(),
                 new MockMultipartFile("file", "<img onerror=alert(1)>.png", "image/png", bytes));
 
-        UserPrincipal principal = new UserPrincipal(alice.id(), alice.email(), alice.passwordHash());
+        UserPrincipal principal = new UserPrincipal(alice.id(), alice.email(), alice.passwordHash(), 0);
         var owner = SecurityMockMvcRequestPostProcessors.user(principal);
         String root = mvc.perform(get("/").with(owner)).andExpect(status().isOk())
                 .andExpect(model().attribute("currentUser", authService.accountDetails(alice.id())))
@@ -529,7 +554,7 @@ class CloudStorageIntegrationTest {
         mvc.perform(get("/files")).andExpect(status().isUnauthorized());
         mvc.perform(get("/folders/{id}", folder.id())).andExpect(status().isUnauthorized());
         mvc.perform(get("/folders/{id}", folder.id()).with(SecurityMockMvcRequestPostProcessors
-                .user(new UserPrincipal(bob.id(), bob.email(), bob.passwordHash()))))
+                .user(new UserPrincipal(bob.id(), bob.email(), bob.passwordHash(), 0))))
                 .andExpect(status().isNotFound());
     }
 
@@ -777,6 +802,142 @@ class CloudStorageIntegrationTest {
         assertEquals(List.of(keep), fileService.list(owner.id(), null));
         assertEquals(sha256(bytes), fileService.get(keep.id(), owner.id()).sha256());
         assertArrayEquals(bytes, download(keep.id(), owner.id()));
+    }
+
+    @Test
+    void recoveryUsesRealSmtpPreservesDataAndRevokesOnlyTheOwnersSessions() throws Exception {
+        UserAccount owner = user("recover@example.com");
+        UserAccount other = user("unrelated@example.com");
+        FolderResponse folder = folderService.create(owner.id(), null, "Existing folder");
+        byte[] bytes = {1, 2, 3, 0, -1};
+        FileResponse file = fileService.upload(owner.id(), folder.id(),
+                new MockMultipartFile("file", "existing.bin", null, bytes));
+        var old = loginClient(owner.email(), "a sufficiently long test password");
+        var anotherOld = loginClient(owner.email(), "a sufficiently long test password");
+        var unrelated = loginClient(other.email(), "a sufficiently long test password");
+        HttpClient browser = HttpClient.newBuilder()
+                .cookieHandler(new CookieManager(null, CookiePolicy.ACCEPT_ALL)).build();
+        assertTrue(send(browser, request("/login?lang=en", "GET", null, null)).body().contains("Forgot your password?"));
+        String form = send(browser, request("/forgot-password", "GET", null, null)).body();
+        assertEquals(403, send(browser, formRequest("/forgot-password", "email=recover%40example.com")).statusCode());
+
+        var unknown = send(browser, formRequest("/forgot-password",
+                "email=unknown%40example.com&_csrf=" + formToken(form)));
+        var unknownConfirmation = send(browser, request("/forgot-password", "GET", null, null));
+        var known = send(browser, formRequest("/forgot-password",
+                "email=RECOVER%40example.com&_csrf=" + formToken(unknownConfirmation.body())));
+        assertEquals(302, known.statusCode());
+        assertEquals(known.statusCode(), unknown.statusCode());
+        assertEquals(known.headers().firstValue("Location"), unknown.headers().firstValue("Location"));
+        var knownConfirmation = send(browser, request("/forgot-password", "GET", null, null));
+        String confirmation = "If an account exists for this email address, password reset instructions will be sent.";
+        assertTrue(knownConfirmation.body().contains(confirmation));
+        assertTrue(unknownConfirmation.body().contains(confirmation));
+
+        var email = INBOX.receive();
+        assertEquals(owner.email(), email.getAllRecipients()[0].toString());
+        assertEquals("Reset your Cloud Storage password", email.getSubject());
+        String content = (String) email.getContent();
+        assertTrue(content.contains("expires in 30 minutes"));
+        URI link = URI.create(content.lines().filter(line -> line.startsWith("http")).findFirst().orElseThrow());
+        assertEquals("localhost", link.getHost());
+        assertEquals(8080, link.getPort());
+        assertEquals("/reset-password", link.getPath());
+        assertTrue(link.getRawQuery().contains("lang=en"));
+        String token = resetToken(link);
+        assertEquals(43, token.length());
+        assertEquals(sha256(token.getBytes(StandardCharsets.US_ASCII)), jdbc.queryForObject(
+                "select token_hash from password_reset_tokens where user_id = ?", String.class, owner.id()));
+        assertFalse(knownConfirmation.body().contains(token));
+
+        assertEquals(302, send(browser, formRequest("/forgot-password",
+                "email=recover%40example.com&_csrf=" + formToken(knownConfirmation.body()))).statusCode());
+        passwordRecoveryExecutor.submit(() -> {}).get(5, TimeUnit.SECONDS);
+        assertTrue(INBOX.isEmpty());
+        assertEquals(1L, resetTokens.count());
+        String otherToken = "C".repeat(43);
+        seedToken(owner.id(), otherToken, Instant.now().minusSeconds(60), Instant.now().plusSeconds(600));
+
+        String resetPath = link.getRawPath() + "?" + link.getRawQuery();
+        var opened = send(browser, request(resetPath, "GET", null, null));
+        assertEquals(200, opened.statusCode());
+        assertEquals("no-referrer", opened.headers().firstValue("Referrer-Policy").orElseThrow());
+        assertTrue(opened.headers().firstValue("Cache-Control").orElseThrow().contains("no-store"));
+        assertEquals(200, send(browser, request(resetPath, "GET", null, null)).statusCode());
+        assertEquals(403, send(browser, formRequest("/reset-password", "token=" + token)).statusCode());
+
+        String newPassword = "a different recovery password";
+        String encoded = URLEncoder.encode(newPassword, StandardCharsets.UTF_8);
+        String formPrefix = "token=" + token + "&password=" + encoded + "&_csrf=" + formToken(opened.body());
+        var mismatch = send(browser, formRequest("/reset-password", formPrefix + "&confirmation=different"));
+        assertEquals(400, mismatch.statusCode());
+        assertTrue(mismatch.body().contains("The passwords do not match."));
+        assertFalse(mismatch.body().contains(newPassword));
+
+        var reset = send(browser, formRequest("/reset-password", formPrefix + "&confirmation=" + encoded));
+        assertEquals(302, reset.statusCode());
+        assertTrue(reset.headers().firstValue("Location").orElseThrow().endsWith("/login"));
+        assertFalse(reset.headers().firstValue("Location").orElseThrow().contains(token));
+        assertEquals(401, send(browser, request("/api/users/me", "GET", null, null)).statusCode());
+        assertEquals(400, send(browser, request(resetPath, "GET", null, null)).statusCode());
+        assertFalse(recovery.isValid(otherToken));
+        assertEquals(401, send(old.client(), request("/api/files", "GET", null, null)).statusCode());
+        assertEquals(401, send(anotherOld.client(), request("/files", "GET", null, null)).statusCode());
+        assertEquals(200, send(unrelated.client(), request("/api/users/me", "GET", null, null)).statusCode());
+        assertThrows(BadCredentialsException.class, () -> authenticationManager.authenticate(
+                UsernamePasswordAuthenticationToken.unauthenticated(owner.email(), "a sufficiently long test password")));
+
+        var newSession = loginClient(owner.email(), newPassword);
+        assertTrue(send(newSession.client(), request("/api/users/me", "GET", null, null)).body().contains(owner.id().toString()));
+        assertTrue(send(newSession.client(), request("/api/folders/" + folder.id() + "/contents", "GET", null, null))
+                .body().contains(file.id().toString()));
+        assertTrue(send(newSession.client(), request("/api/files/" + file.id() + "/versions", "GET", null, null))
+                .body().contains(sha256(bytes)));
+        var downloaded = newSession.client().send(request("/api/files/" + file.id() + "/download", "GET", null, null),
+                HttpResponse.BodyHandlers.ofByteArray());
+        assertEquals(200, downloaded.statusCode());
+        assertArrayEquals(bytes, downloaded.body());
+    }
+
+    @Test
+    void expiredTokensArePurgedAndConcurrentRedemptionsHaveOnlyOneWinner() throws Exception {
+        UserAccount owner = user("race-recovery@example.com");
+        String expired = "A".repeat(43);
+        Instant now = Instant.now();
+        seedToken(owner.id(), expired, now.minusSeconds(7200), now.minusSeconds(3600));
+        assertFalse(recovery.isValid(expired));
+        assertFalse(recovery.reset(expired, new ResetPasswordRequest("a valid long password", "a valid long password")));
+        recovery.cleanup();
+        assertEquals(0L, resetTokens.count());
+
+        String token = "B".repeat(43);
+        seedToken(owner.id(), token, now, now.plusSeconds(120));
+        var start = new CountDownLatch(1);
+        try (ExecutorService pool = Executors.newFixedThreadPool(2)) {
+            Future<Boolean> first = pool.submit(() -> {
+                start.await();
+                return recovery.reset(token, new ResetPasswordRequest("first proposed password", "first proposed password"));
+            });
+            Future<Boolean> second = pool.submit(() -> {
+                start.await();
+                return recovery.reset(token, new ResetPasswordRequest("second proposed password", "second proposed password"));
+            });
+            start.countDown();
+            assertNotEquals(first.get(10, TimeUnit.SECONDS), second.get(10, TimeUnit.SECONDS));
+        }
+        assertFalse(recovery.isValid(token));
+        assertEquals(1L, userRepository.findCredentialVersion(owner.id()).orElseThrow());
+    }
+
+    private String resetToken(URI link) {
+        Matcher match = Pattern.compile("(?:^|&)token=([A-Za-z0-9_-]{43})(?:&|$)").matcher(link.getRawQuery());
+        assertTrue(match.find(), "The email must contain a URL-safe reset secret");
+        return match.group(1);
+    }
+
+    private void seedToken(UUID user, String token, Instant created, Instant expires) throws Exception {
+        resetTokens.saveAndFlush(new PasswordResetToken(user, sha256(token.getBytes(StandardCharsets.US_ASCII)),
+                created, expires));
     }
 
     private UserAccount user(String email) {

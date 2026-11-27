@@ -67,6 +67,10 @@ Task 04 standardizes the existing constructor injection with explicit `@Autowire
 
 Task 05 is complete. The browser supports Brazilian Portuguese and English from shared UTF-8 Spring message bundles. The language cookie persists across navigation and logout. Thymeleaf and JavaScript share the selected language, and REST error text follows the resolved locale while status and error codes stay stable. See the [locale behavior and verification record](backend/README.md#task-05--internationalization).
 
+## 0.7 Task 06 — Password recovery
+
+Task 06 is complete. Password recovery uses localized Thymeleaf forms and configured SMTP. Flyway V3 adds hashed reset tokens and a credential version for revoking old sessions. The atomic reset updates the existing account, preserving file and folder ownership and revision history. See the [configuration and verification record](backend/README.md#task-06--password-recovery).
+
 ## 1. Original artifacts and provenance
 
 | Source | What it contains | Status |
@@ -753,7 +757,7 @@ TEST STATUS: local P0 and P2 checks passed; public deployment/tunnel and
               backup/restore validation remain outstanding.
 HISTORICAL TCP NOTES: Sections 3–7 and Appendices A/B describe pre-integration
                       code and its old line protocol, not current root sources.
-NEXT ACADEMIC TASK: Task 06, password recovery.
+NEXT ACADEMIC TASK: Task 07, user profile and personal data updates.
 DEPLOYMENT FOLLOW-UP: Ubuntu host, HTTPS/tunnel/access, and backup/restore
                       validation are still pending.
 ```
