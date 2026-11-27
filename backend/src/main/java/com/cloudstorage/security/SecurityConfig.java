@@ -15,6 +15,7 @@ import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.crypto.password.Pbkdf2PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.logout.SecurityContextLogoutHandler;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.security.web.context.SecurityContextRepository;
 import org.springframework.security.web.csrf.HttpSessionCsrfTokenRepository;
@@ -53,6 +54,11 @@ public class SecurityConfig {
         HttpSessionCsrfTokenRepository repository = new HttpSessionCsrfTokenRepository();
         repository.setHeaderName("X-CSRF-TOKEN");
         return repository;
+    }
+
+    @Bean
+    SecurityContextLogoutHandler logoutHandler() {
+        return new SecurityContextLogoutHandler();
     }
 
     @Bean

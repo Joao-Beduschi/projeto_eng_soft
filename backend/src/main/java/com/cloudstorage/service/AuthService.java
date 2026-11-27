@@ -8,6 +8,7 @@ import com.cloudstorage.repository.DatabaseConstraints;
 import com.cloudstorage.repository.UserRepository;
 import java.util.Locale;
 import java.util.UUID;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.userdetails.UserDetailsService;
@@ -20,6 +21,7 @@ public class AuthService {
     private final UserRepository users;
     private final PasswordEncoder passwordEncoder;
 
+    @Autowired
     public AuthService(UserRepository users, PasswordEncoder passwordEncoder) {
         this.users = users;
         this.passwordEncoder = passwordEncoder;

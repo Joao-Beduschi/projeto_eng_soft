@@ -11,6 +11,7 @@ import java.util.Set;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.stereotype.Component;
@@ -22,6 +23,7 @@ public class FileReconciliationService implements ApplicationRunner {
     private final FileVersionRepository versions;
     private final StorageService storage;
 
+    @Autowired
     public FileReconciliationService(FileRepository files, FileVersionRepository versions,
                                      StorageService storage) {
         this.files = files;

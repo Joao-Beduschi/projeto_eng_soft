@@ -14,6 +14,7 @@ import java.util.Map;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -41,6 +42,7 @@ public class FileController {
     private final FileService files;
     private final FileVersionService versions;
 
+    @Autowired
     public FileController(FileService files, FileVersionService versions) {
         this.files = files;
         this.versions = versions;

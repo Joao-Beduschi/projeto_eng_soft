@@ -5,6 +5,7 @@ import com.cloudstorage.exception.ApiException;
 import com.cloudstorage.security.UserPrincipal;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -23,14 +24,18 @@ public class SessionService {
     private final AuthenticationManager authenticationManager;
     private final SecurityContextRepository securityContextRepository;
     private final CsrfTokenRepository csrfTokenRepository;
+    private final SecurityContextLogoutHandler logoutHandler;
 
+    @Autowired
     public SessionService(AuthService accounts, AuthenticationManager authenticationManager,
                           SecurityContextRepository securityContextRepository,
-                          CsrfTokenRepository csrfTokenRepository) {
+                          CsrfTokenRepository csrfTokenRepository,
+                          SecurityContextLogoutHandler logoutHandler) {
         this.accounts = accounts;
         this.authenticationManager = authenticationManager;
         this.securityContextRepository = securityContextRepository;
         this.csrfTokenRepository = csrfTokenRepository;
+        this.logoutHandler = logoutHandler;
     }
 
     public UserResponse login(String email, String password, HttpServletRequest servletRequest,
@@ -58,6 +63,6 @@ public class SessionService {
     }
 
     public void logout(HttpServletRequest request, HttpServletResponse response, Authentication authentication) {
-        new SecurityContextLogoutHandler().logout(request, response, authentication);
+        logoutHandler.logout(request, response, authentication);
     }
 }

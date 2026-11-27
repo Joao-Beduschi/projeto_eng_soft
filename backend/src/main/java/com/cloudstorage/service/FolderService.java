@@ -9,6 +9,7 @@ import com.cloudstorage.repository.UserRepository;
 import com.cloudstorage.validation.NameValidator;
 import java.util.List;
 import java.util.UUID;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -20,6 +21,7 @@ public class FolderService {
     private final FileService files;
     private final UserRepository users;
 
+    @Autowired
     public FolderService(FolderRepository folders, FileService files, UserRepository users) {
         this.folders = folders;
         this.files = files;

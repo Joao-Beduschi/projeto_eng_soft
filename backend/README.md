@@ -82,6 +82,57 @@ Task 03 requires no schema or data migration. Keep the existing PostgreSQL datab
 
 Task 03 is complete. The MVC and Thymeleaf views, REST contract, Java client, and private filesystem storage continue using the same service interfaces.
 
+## Task 04 — Spring dependency injection
+
+`CloudStorageApplication` is in `com.cloudstorage`, so Spring Boot discovers the controllers, services, security configuration, exception advice, and startup reconciliation in its subpackages. Spring Data creates the four JPA repository proxies. The application already used valid implicit constructor injection and had no production field or setter injection. No unresolved cycle or ambiguous bean was found.
+
+Constructors that receive required Spring beans or configuration values now use explicit `@Autowired`, following the professor's convention. Dependencies remain in final fields. `SessionService` receives a `SecurityContextLogoutHandler` from `SecurityConfig` instead of allocating one per logout. The bean uses the previous handler defaults, and request, response, and authentication data remain method parameters.
+
+```mermaid
+flowchart LR
+    Home["HomeController"] --> Account["AuthService"]
+    Home --> Sessions["SessionService"]
+    Home --> Folders["FolderService"]
+    Home --> Files["FileService"]
+    AuthAPI["AuthController"] --> Account
+    AuthAPI --> Sessions
+    FolderAPI["FolderController"] --> Folders
+    FileAPI["FileController"] --> Files
+    FileAPI --> Versions["FileVersionService"]
+    Folders --> Files
+    Account --> Users["UserRepository"]
+    Folders --> Users
+    Folders --> FolderRepo["FolderRepository"]
+    Files --> FolderRepo
+    Files --> Metadata["FileRepository and FileVersionRepository"]
+    Versions --> Metadata
+    Reconcile["FileReconciliationService"] --> Metadata
+    Files --> Storage["StorageService"]
+    Versions --> Storage
+    Reconcile --> Storage
+    Files --> Tx["TransactionTemplate"]
+    Versions --> Tx
+    Sessions --> Account
+    Sessions --> Manager["AuthenticationManager"]
+    Manager --> Details["UserDetailsService"]
+    Details --> Account
+    Sessions --> SessionBeans["Session context, CSRF, and logout beans"]
+    Account --> Encoder["PasswordEncoder"]
+    Manager --> Encoder
+```
+
+`SecurityConfig` registers the password encoder, user details service, authentication manager, session security context repository, CSRF repository, logout handler, CORS source, and filter chain. Spring resolves dependencies on `@Bean` method parameters. Boot supplies validation and transaction infrastructure. The MVC controller also receives the Jakarta validator. The storage root and upload limits continue to use constructor parameter `@Value` settings.
+
+Components without injected dependencies, including `ApiSecurityErrors` and `GlobalExceptionHandler`, need no annotated constructors. JPA entities, DTOs, request data, and factory internals retain ordinary construction. Integration-test fields use Spring's test injection. The storage restart test deliberately constructs a separate storage instance over the same test directory.
+
+### Task 04 verification
+
+The baseline at `c58ee3c` and the updated build each passed all 20 tests with Maven `clean package`. The full Spring application context started with the JPA repositories, security beans, and startup runner resolved. Existing tests exercised browser and API logout, session invalidation, CSRF, ownership, Thymeleaf rendering, revision and restore operations, transaction rollback, and startup reconciliation.
+
+Both Java entrypoints compiled with Java 21. The Java client read an existing folder and downloaded its original file after the updated application started against the same disposable database and filesystem. A new upload and download also matched byte for byte. Headless Chrome verified sign-in, registration, logout, navigation, search, file and folder operations, and download integrity. The earlier file's revision retained its SHA-256.
+
+Task 04 is complete. Later academic corrections remain separate.
+
 ## Assumptions recorded for this implementation
 
 - Java 21, Spring Boot 4.1.2, PostgreSQL 15 or newer, Spring Data JPA with Hibernate, and Flyway migrations.

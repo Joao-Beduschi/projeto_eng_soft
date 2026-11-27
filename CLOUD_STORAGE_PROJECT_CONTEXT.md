@@ -59,6 +59,10 @@ Task 03 is complete. Spring Data JPA and Hibernate replace the four direct JDBC 
 
 See the [Task 03 mapping, transaction, and verification record](backend/README.md#task-03--jpa-persistence). The remaining academic corrections are separate tasks.
 
+## 0.5 Task 04 — Spring dependency injection
+
+Task 04 standardizes the existing constructor injection with explicit `@Autowired` on Spring-managed constructors that receive dependencies. `SessionService` now receives the logout handler from `SecurityConfig`. Spring Data still creates the JPA repositories, and the controller, service, and transaction boundaries are unchanged. See the [dependency diagram and verification record](backend/README.md#task-04--spring-dependency-injection).
+
 ## 1. Original artifacts and provenance
 
 | Source | What it contains | Status |
@@ -745,7 +749,7 @@ TEST STATUS: local P0 and P2 checks passed; public deployment/tunnel and
               backup/restore validation remain outstanding.
 HISTORICAL TCP NOTES: Sections 3–7 and Appendices A/B describe pre-integration
                       code and its old line protocol, not current root sources.
-NEXT ACADEMIC TASK: Task 04, dependency injection review.
+NEXT ACADEMIC TASK: Task 05, internationalization.
 DEPLOYMENT FOLLOW-UP: Ubuntu host, HTTPS/tunnel/access, and backup/restore
                       validation are still pending.
 ```

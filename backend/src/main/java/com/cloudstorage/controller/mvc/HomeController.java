@@ -17,6 +17,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.stereotype.Controller;
@@ -35,6 +36,7 @@ public class HomeController {
     private final FileService files;
     private final Validator validator;
 
+    @Autowired
     public HomeController(AuthService accounts, SessionService sessions, FolderService folders,
                           FileService files, Validator validator) {
         this.accounts = accounts;

@@ -16,6 +16,7 @@ import java.util.List;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
@@ -34,6 +35,7 @@ public class FileVersionService {
     private final TransactionTemplate transactions;
     private final long maxFileSize;
 
+    @Autowired
     public FileVersionService(FileRepository files,
                               FileVersionRepository versions,
                               StorageService storage,

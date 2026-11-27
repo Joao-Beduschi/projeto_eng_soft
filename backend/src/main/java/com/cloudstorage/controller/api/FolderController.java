@@ -11,6 +11,7 @@ import java.net.URI;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -30,6 +31,7 @@ public class FolderController {
 
     private final FolderService folders;
 
+    @Autowired
     public FolderController(FolderService folders) {
         this.folders = folders;
     }

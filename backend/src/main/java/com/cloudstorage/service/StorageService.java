@@ -23,6 +23,7 @@ import java.util.Set;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -36,6 +37,7 @@ public class StorageService {
     private final Path tempRoot;
     private long reservedBytes;
 
+    @Autowired
     public StorageService(@Value("${app.storage.root}") String configuredRoot) {
         try {
             Path requestedRoot = Path.of(configuredRoot).toAbsolutePath().normalize();
