@@ -4,10 +4,11 @@ import com.cloudstorage.dto.UserResponse;
 import com.cloudstorage.exception.ApiException;
 import com.cloudstorage.model.UserAccount;
 import com.cloudstorage.security.UserPrincipal;
+import com.cloudstorage.repository.DatabaseConstraints;
 import com.cloudstorage.repository.UserRepository;
 import java.util.Locale;
 import java.util.UUID;
-import org.springframework.dao.DuplicateKeyException;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
@@ -28,7 +29,10 @@ public class AuthService {
         String normalizedEmail = normalizeEmail(email);
         try {
             return users.insert(UUID.randomUUID(), normalizedEmail, passwordEncoder.encode(password));
-        } catch (DuplicateKeyException exception) {
+        } catch (DataIntegrityViolationException exception) {
+            if (!DatabaseConstraints.isUniqueViolation(exception, "users_email_unique")) {
+                throw exception;
+            }
             throw new ApiException(HttpStatus.CONFLICT, "email_already_registered",
                     "An account with this email already exists.");
         }
@@ -41,7 +45,7 @@ public class AuthService {
     }
 
     public UserResponse accountDetails(UUID id) {
-        return users.findById(id)
+        return users.findAccount(id)
                 .map(UserResponse::from)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "user_not_found", "User not found."));
     }

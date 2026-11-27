@@ -6,6 +6,7 @@ import com.cloudstorage.exception.ApiException;
 import com.cloudstorage.model.FileRecord;
 import com.cloudstorage.model.FileVersionRecord;
 import com.cloudstorage.model.StoredObject;
+import com.cloudstorage.repository.DatabaseConstraints;
 import com.cloudstorage.repository.FileRepository;
 import com.cloudstorage.repository.FileVersionRepository;
 import java.io.IOException;
@@ -16,7 +17,7 @@ import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.dao.DuplicateKeyException;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -170,7 +171,10 @@ public class FileVersionService {
                 FileVersionRecord reserved = versions.createPending(pending);
                 return new Reservation(file, current, reserved, source);
             });
-        } catch (DuplicateKeyException exception) {
+        } catch (DataIntegrityViolationException exception) {
+            if (!DatabaseConstraints.isUniqueViolation(exception, "file_versions_file_id_version_number_key")) {
+                throw exception;
+            }
             throw new ApiException(HttpStatus.CONFLICT, "revision_in_progress",
                     "Another revision is already being uploaded for this file.");
         }
@@ -178,15 +182,15 @@ public class FileVersionService {
 
     private FileVersionResponse complete(Reservation reservation, StoredObject stored) {
         transactions.executeWithoutResult(status -> {
-            if (!versions.markReady(reservation.version().id(), reservation.file().id(),
-                    stored.sizeBytes(), stored.sha256())) {
+            if (versions.markReady(reservation.version().id(), reservation.file().id(),
+                    stored.sizeBytes(), stored.sha256()) != 1) {
                 throw new IllegalStateException("Pending revision metadata is unavailable");
             }
-            boolean updated = files.advanceCurrentVersion(reservation.file().id(),
+            int updated = files.advanceCurrentVersion(reservation.file().id(),
                     reservation.file().ownerId(), reservation.current().id(),
                     reservation.version().id(), reservation.version().storageKey(),
                     stored.sizeBytes(), stored.sha256(), stored.detectedMimeType());
-            if (!updated) {
+            if (updated != 1) {
                 throw staleVersion(reservation.current().versionNumber());
             }
         });

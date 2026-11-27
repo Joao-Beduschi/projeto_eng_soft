@@ -51,11 +51,40 @@ JavaScript filters rendered rows for search, opens dialogs, asks for confirmatio
 - Headless Chrome verified registration, login, logout, folder creation and navigation, file upload, search, download with matching SHA-256, and rename, move, and deletion for files and folders. It also followed folder and breadcrumb links and read file rows with JavaScript disabled.
 - Both Java entrypoints compiled with Java 21. The Java client signed in, listed, and downloaded an existing file after switching from a pre-Thymeleaf build to the Task 02 JAR with the same isolated PostgreSQL database and storage directory. It also uploaded and downloaded a new file against the Task 02 JAR. Both downloads matched the original bytes.
 
-Task 02 is complete. JDBC remains in use until Task 03 — JPA Migration. Internationalization, account improvements, the dependency injection review, and comprehensive page organization remain separate tasks.
+Task 02 is complete. Internationalization, account improvements, the dependency injection review, and comprehensive page organization remain separate tasks.
+
+## Task 03 — JPA persistence
+
+The previous implementation used four JDBC repositories with hand-written row mapping. The same repository boundaries now use Spring Data JPA and Hibernate. Boot manages the JPA starter and Hibernate versions. PostgreSQL, Flyway, and the JDBC driver remain in the stack. Flyway runs before Hibernate validates the schema with `spring.jpa.hibernate.ddl-auto=validate`. Open Session in View is disabled.
+
+| Repository | Entity and relationships |
+|---|---|
+| `UserRepository` | `UserEntity` maps users, including the existing password hash and database-generated creation timestamp. Email lookup uses `lower(email)` to match the existing unique index. |
+| `FolderRepository` | `FolderEntity` maps the owner and optional parent. A root folder has a null parent. |
+| `FileRepository` | `FileEntity` maps the owner, optional folder, and optional current revision. A root file has a null folder. Only metadata is mapped. |
+| `FileVersionRepository` | `FileVersionEntity` maps the existing revision rows, their file, and their uploader. |
+
+The entities use assigned UUIDs, database-generated insertion timestamps, and lazy, read-only associations by globally unique primary keys. Scalar IDs own writes. PostgreSQL still enforces the composite same-owner and same-file foreign keys defined by Flyway. Services receive immutable record snapshots, so view and API DTOs do not traverse lazy associations or expose storage keys and password hashes.
+
+Derived queries handle straightforward lookups. Parameterized JPQL and Hibernate query extensions preserve null-safe listing, ordering, owner filters, conditional lifecycle changes, atomic revision pointer updates, and empty-folder deletion. The only native repository query is the recursive PostgreSQL CTE for checking whether a move would create a folder cycle. JPQL has no recursive CTE construct.
+
+Folder writes retain their service transaction and use a pessimistic lock on the owner row. Revision reservations lock the ready file row. Conditional bulk writes flush and clear the persistence context so later reads see updated rows. Uploads and restores keep filesystem streaming outside database transactions. The existing pending → ready → deleting lifecycle and startup reconciliation continue coordinating the database and private storage. Hibernate constraint errors for duplicate email and revision reservations retain their existing API conflict responses.
+
+### Database compatibility
+
+Task 03 requires no schema or data migration. Keep the existing PostgreSQL database, Flyway history, and matching storage directory together when switching builds. On an existing V2 database, Flyway checks the applied migrations and Hibernate validates the mapped columns. On a fresh database, Flyway applies V1 and V2 before Hibernate starts. Existing V1 databases still use the unchanged V2 revision backfill. Hibernate validation checks the mapping, while ownership and revision rules remain enforced by the Flyway-managed constraints and trigger.
+
+### Task 03 verification
+
+- The JDBC baseline at `210b275` built successfully and passed 18 tests. The JPA build passed 20 PostgreSQL integration and migration tests with zero failures, errors, or skips. The added cases verify UUID and timestamp round trips, root and nested records, owner-scoped writes, composite foreign keys, rollback when a combined folder rename and move would create a cycle, and cleanup of interrupted rows and bytes.
+- A disposable PostgreSQL 16 database and storage directory were populated using the JDBC build. The JPA build started against those same resources. The Java client retrieved the original bytes from the existing folder and completed a new upload and download. Thymeleaf rendered the JDBC-created folder and file, and the existing revision retained its SHA-256.
+- Headless Chrome exercised the authentication forms, folder navigation, search, uploads and downloads, and rename, move, and deletion for files and folders. Folder links and file rows also worked with JavaScript disabled.
+
+Task 03 is complete. The MVC and Thymeleaf views, REST contract, Java client, and private filesystem storage continue using the same service interfaces.
 
 ## Assumptions recorded for this implementation
 
-- Java 21, Spring Boot 4.1.2, PostgreSQL 15 or newer, JDBC with prepared statements, and Flyway migrations.
+- Java 21, Spring Boot 4.1.2, PostgreSQL 15 or newer, Spring Data JPA with Hibernate, and Flyway migrations.
 - New accounts can register themselves. Passwords are stored using Spring Security's adaptive PBKDF2 encoder.
 - Authentication uses server-side HTTP sessions in application memory. Cookies are HttpOnly and SameSite=Lax by default; enable HTTPS and set `SESSION_COOKIE_SECURE=true` outside local development. Cross-site frontends may need `SESSION_COOKIE_SAME_SITE=none`, which requires secure cookies over HTTPS.
 - Spring is configured to honor forwarded request headers from a reverse proxy. This makes it proxy-aware; it does not install or start Cloudflare Tunnel. `cloudflared` is a separate process/service on the server.
@@ -293,7 +322,7 @@ Flyway does not automatically roll back applied SQL migrations. For an applicati
 
 ## Operational notes
 
-- SQL transactions use JDBC bind parameters. Composite foreign keys enforce that files and nested folders share their owner's identity.
+- JPA queries use bound parameters. Composite foreign keys enforce that files and nested folders share their owner's identity.
 - Uploads write to a temporary file, enforce the byte limit while streaming, calculate SHA-256, force file contents, atomically move into place, then mark SQL metadata `ready`. Revisions reserve a pending history row and a new UUID object key, then mark the revision ready and advance the file's current pointer only if the expected current revision still matches.
 - Failed uploads remove pending rows/temporary objects. Startup reconciliation retries stale uploads/deletions and removes unreferenced UUID objects.
 - Deletion first changes metadata to `deleting`; failed disk cleanup is retried during startup reconciliation.

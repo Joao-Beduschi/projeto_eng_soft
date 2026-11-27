@@ -21,7 +21,7 @@
 
 ## 0.1 Later backend request and implementation status (updated 2026-11-25)
 
-The user later requested a backend following `cloud_storage_backend_requirements_java_sql.md`. This explicitly expands the implementation task beyond the academic PDF's minimum and authorizes a Java SQL-backed HTTP API with accounts, ownership, folders, and file management. The user also requested integration with the root Java files and a web interface: `DocsServer.java` launches Spring Boot, `DocsClient.java` is an interactive HTTP client, and Spring Boot serves the browser app from the same origin. The old unauthenticated TCP text protocol has been removed from these entrypoints.
+The user later requested a backend following `cloud_storage_backend_requirements_java_sql.md`. This explicitly expands the implementation task beyond the academic PDF's minimum and authorizes a Java SQL-backed HTTP API with accounts, ownership, folders, and file management. The user also requested integration with the root Java files and a web interface: `DocsServer.java` launches Spring Boot, `DocsClient.java` is an interactive HTTP client, and Spring Boot serves the browser app from the same origin. The old unauthenticated TCP text protocol has been removed from these entrypoints. This subsection records the initial backend. See Task 03 below for current persistence.
 
 An initial backend module now exists under `backend/`:
 
@@ -43,7 +43,7 @@ Both root Java entrypoints compile with Java 21; the `DocsClient` interactive HT
 
 ## 0.2 Task 01 — MVC architecture (2026-11-26)
 
-Task 01 introduced an MVC page controller that prepared an account model and forwarded to the then-static page. The API controllers moved to a separate package and retained their routes. Session orchestration and folder-content assembly moved into services. JDBC repositories continue to own SQL, and the storage service continues to own physical file I/O.
+Task 01 introduced an MVC page controller that prepared an account model and forwarded to the then-static page. The API controllers moved to a separate package and retained their routes. Session orchestration and folder-content assembly moved into services. At that stage, JDBC repositories owned SQL and the storage service owned physical file I/O.
 
 See the [Task 01 architecture and verification record](backend/README.md#task-01--mvc-architecture).
 
@@ -51,7 +51,13 @@ See the [Task 01 architecture and verification record](backend/README.md#task-01
 
 Task 02 is complete. The browser now receives server-rendered authentication forms, workspace listings, and folder navigation from the MVC controller and Thymeleaf. Login, registration, and logout submit CSRF-protected browser forms using the existing account and session services. JavaScript enhances server-rendered listings with search, drag-and-drop, and file and folder actions through the original API.
 
-See the [Task 02 routes, models, and verification record](backend/README.md#task-02--thymeleaf-integration). JDBC remains in use until Task 03 — JPA Migration. The remaining academic corrections are separate tasks.
+See the [Task 02 routes, models, and verification record](backend/README.md#task-02--thymeleaf-integration).
+
+## 0.4 Task 03 — JPA persistence
+
+Task 03 is complete. Spring Data JPA and Hibernate replace the four direct JDBC repositories for users, folders, files, and revisions. Flyway V1/V2 and the PostgreSQL schema are unchanged. Hibernate validates the schema, and immutable record snapshots separate the persistence entities from the DTOs used by MVC and REST. File bytes stay in private filesystem storage.
+
+See the [Task 03 mapping, transaction, and verification record](backend/README.md#task-03--jpa-persistence). The remaining academic corrections are separate tasks.
 
 ## 1. Original artifacts and provenance
 
@@ -188,7 +194,7 @@ The original TCP demo supplied **two Java source files**. They are now integrate
 
 The former root TCP server and line-based protocol have been replaced. `DocsServer` invokes the backend's Maven `spring-boot:run` goal and loads the ignored root `.env`; `DocsClient` uses JDK `HttpClient`, session cookies, and CSRF tokens to call the backend API. The backend owns authentication, SQL metadata, file storage and authorization. Spring MVC renders the browser interface with Thymeleaf using the same-origin session and CSRF flow.
 
-The two root entrypoints rely only on the **Java standard library**. The backend remains a separate Maven module using Spring Boot, PostgreSQL, JDBC and Flyway.
+The two root entrypoints rely only on the **Java standard library**. The backend remains a separate Maven module using Spring Boot, PostgreSQL, Spring Data JPA, and Flyway.
 
 ### 5.2 Historical TCP server snapshot (pre-integration)
 
@@ -716,7 +722,7 @@ When uncertain, preserve the minimum academic scope and document the choice; do 
 PROJECT: Simple cloud storage / file sharing (UFSCar software engineering)
 INPUTS: Doc_Req_Eng_Software.pdf; cloud_storage_backend_requirements_java_sql.md;
         DocsServer.java; DocsClient.java; backend/
-CURRENT BACKEND: Spring Boot 4.1.2 / Java 21; PostgreSQL JDBC + Flyway;
+CURRENT BACKEND: Spring Boot 4.1.2 / Java 21; PostgreSQL, Spring Data JPA, Flyway;
                  session auth + CSRF; owner-scoped file API; private UUID storage;
                  nested folder API; Flyway V2 file_versions; Compose PostgreSQL
                  volume backend_postgres_data.
@@ -739,7 +745,7 @@ TEST STATUS: local P0 and P2 checks passed; public deployment/tunnel and
               backup/restore validation remain outstanding.
 HISTORICAL TCP NOTES: Sections 3–7 and Appendices A/B describe pre-integration
                       code and its old line protocol, not current root sources.
-NEXT ACADEMIC TASK: Task 03, JPA Migration. JDBC remains in use.
+NEXT ACADEMIC TASK: Task 04, dependency injection review.
 DEPLOYMENT FOLLOW-UP: Ubuntu host, HTTPS/tunnel/access, and backup/restore
                       validation are still pending.
 ```

@@ -48,6 +48,8 @@ The current repository implements the user's explicitly authorized P2 file-versi
 
 ## 2. System architecture
 
+Task 03 selected Spring Data JPA and Hibernate to meet the academic persistence requirement. The alternatives below record the original design options. Flyway still manages PostgreSQL, and physical file contents stay on disk. See the [current persistence architecture](backend/README.md#task-03--jpa-persistence).
+
 ```text
 Browser / Frontend
        |

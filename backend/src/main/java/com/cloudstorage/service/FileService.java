@@ -83,9 +83,9 @@ public class FileService {
             StoredObject stored = storage.store(storageKey, originalName, input, expectedSize, maxFileSize);
             storageCommitted = true;
             transactions.executeWithoutResult(status -> {
-                if (!versions.markReady(versionId, id, stored.sizeBytes(), stored.sha256())
-                        || !files.markReady(id, ownerId, versionId,
-                        stored.sha256(), stored.detectedMimeType())) {
+                if (versions.markReady(versionId, id, stored.sizeBytes(), stored.sha256()) != 1
+                        || files.markReady(id, ownerId, versionId,
+                        stored.sha256(), stored.detectedMimeType()) != 1) {
                     throw new IllegalStateException("Upload metadata could not be committed");
                 }
             });
@@ -150,7 +150,7 @@ public class FileService {
                     "The file could not be deleted right now. Cleanup will be retried.");
         }
         versions.deleteAllForFile(id);
-        if (!files.deleteWithStatus(id, "deleting")) {
+        if (files.deleteWithStatus(id, "deleting") != 1) {
             throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "delete_incomplete",
                     "The file was removed but its metadata cleanup will be retried.");
         }
@@ -165,7 +165,7 @@ public class FileService {
         }
         if (hasName) {
             String name = NameValidator.validate(requestedName, "file");
-            if (!files.renameReady(id, ownerId, name)) {
+            if (files.renameReady(id, ownerId, name) != 1) {
                 throw notFound("file");
             }
         }
@@ -173,7 +173,7 @@ public class FileService {
             if (folderId != null && folders.findOwned(folderId, ownerId).isEmpty()) {
                 throw notFound("folder");
             }
-            if (!files.moveReady(id, ownerId, folderId)) {
+            if (files.moveReady(id, ownerId, folderId) != 1) {
                 throw notFound("file");
             }
         }

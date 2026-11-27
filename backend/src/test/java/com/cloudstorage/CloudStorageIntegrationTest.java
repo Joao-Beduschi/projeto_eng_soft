@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
@@ -20,11 +21,16 @@ import com.cloudstorage.dto.FileVersionResponse;
 import com.cloudstorage.dto.FolderResponse;
 import com.cloudstorage.exception.ApiException;
 import com.cloudstorage.model.FileRecord;
+import com.cloudstorage.model.FileVersionRecord;
 import com.cloudstorage.model.UserAccount;
 import com.cloudstorage.security.UserPrincipal;
 import com.cloudstorage.repository.FileRepository;
+import com.cloudstorage.repository.FileVersionRepository;
+import com.cloudstorage.repository.FolderRepository;
+import com.cloudstorage.repository.UserRepository;
 import com.cloudstorage.service.AuthService;
 import com.cloudstorage.service.FileService;
+import com.cloudstorage.service.FileReconciliationService;
 import com.cloudstorage.service.FileVersionService;
 import com.cloudstorage.service.FolderService;
 import com.cloudstorage.service.StorageService;
@@ -45,6 +51,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
+import java.time.OffsetDateTime;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.UUID;
@@ -61,6 +68,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.core.env.Environment;
 import org.springframework.dao.DataAccessException;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -95,6 +103,10 @@ class CloudStorageIntegrationTest {
     @Autowired private FileVersionService fileVersionService;
     @Autowired private FolderService folderService;
     @Autowired private FileRepository fileRepository;
+    @Autowired private FileVersionRepository versionRepository;
+    @Autowired private FolderRepository folderRepository;
+    @Autowired private UserRepository userRepository;
+    @Autowired private FileReconciliationService reconciliation;
     @Autowired private StorageService storageService;
     @Autowired private AuthenticationManager authenticationManager;
     @Autowired private JdbcTemplate jdbc;
@@ -593,6 +605,98 @@ class CloudStorageIntegrationTest {
         assertEquals(parent.id(), fileService.get(file.id(), alice.id()).folderId());
         assertEquals(200, send(owner.client(), request(path, "PATCH", owner.csrfToken(), "{\"folderId\":null}")).statusCode());
         assertTrue(fileService.list(alice.id(), null).stream().anyMatch(row -> row.id().equals(file.id())));
+    }
+
+    @Test
+    void jpaPreservesTimestampsRelationshipsAndOwnerScopedWrites() {
+        UserAccount owner = user("persistence@example.com");
+        UserAccount other = user("other-persistence@example.com");
+        assertEquals(owner, userRepository.findAccount(owner.id()).orElseThrow());
+        assertEquals(owner.createdAt(), jdbc.queryForObject("select created_at from users where id = ?",
+                OffsetDateTime.class, owner.id()));
+
+        FolderResponse root = folderService.create(owner.id(), null, "Root");
+        FolderResponse child = folderService.create(owner.id(), root.id(), "Child");
+        assertEquals(List.of(root), folderService.list(owner.id(), null));
+        assertEquals(List.of(child), folderService.list(owner.id(), root.id()));
+        assertEquals(root.id(), folderRepository.findOwned(child.id(), owner.id()).orElseThrow().parentId());
+        assertThrows(DataIntegrityViolationException.class,
+                () -> folderRepository.create(UUID.randomUUID(), other.id(), root.id(), "Cross owner"));
+
+        FileResponse created = fileService.upload(owner.id(), null,
+                new MockMultipartFile("file", "mapping.bin", null, new byte[]{1, 2, 3}));
+        assertEquals(List.of(created), fileService.list(owner.id(), null));
+        FileRecord ready = fileRepository.findReadyOwned(created.id(), owner.id()).orElseThrow();
+        assertEquals("ready", ready.status());
+        assertEquals(created.createdAt(), ready.createdAt());
+        assertEquals(ready.currentVersionId(),
+                versionRepository.findCurrentReadyOwned(ready.id(), owner.id()).orElseThrow().id());
+        assertEquals(0, fileRepository.renameReady(ready.id(), other.id(), "Unauthorized"));
+        assertEquals(0, fileRepository.moveReady(ready.id(), other.id(), null));
+        assertTrue(fileRepository.markDeleting(ready.id(), other.id()).isEmpty());
+        assertEquals(0, folderRepository.rename(root.id(), other.id(), "Unauthorized"));
+        assertEquals(0, folderRepository.move(root.id(), other.id(), null));
+        assertEquals(0, folderRepository.deleteIfEmpty(child.id(), other.id()));
+
+        FileResponse moved = fileService.patch(ready.id(), owner.id(), true, "moved.bin", true, child.id());
+        assertEquals("moved.bin", moved.name());
+        assertEquals(created.createdAt(), moved.createdAt());
+        assertFalse(moved.updatedAt().isBefore(created.updatedAt()));
+        assertTrue(fileService.list(owner.id(), null).isEmpty());
+        assertEquals(List.of(moved), fileService.list(owner.id(), child.id()));
+        assertThrows(DataIntegrityViolationException.class,
+                () -> fileRepository.moveReady(ready.id(), owner.id(),
+                        folderService.create(other.id(), null, "Other root").id()));
+        assertEquals(child.id(), fileService.get(ready.id(), owner.id()).folderId());
+
+        ApiException cycle = assertThrows(ApiException.class,
+                () -> folderService.patch(root.id(), owner.id(), true, "Do not keep", true, child.id()));
+        assertEquals("folder_cycle", cycle.code());
+        assertEquals(root, folderService.get(root.id(), owner.id()));
+
+        FolderResponse renamed = folderService.patch(child.id(), owner.id(), true, "Renamed", true, null);
+        assertEquals("Renamed", renamed.name());
+        assertEquals(child.createdAt(), renamed.createdAt());
+        assertNull(renamed.parentId());
+        assertEquals(409, assertThrows(ApiException.class, () -> folderService.delete(child.id(), owner.id()))
+                .status().value());
+    }
+
+    @Test
+    void startupReconciliationRemovesInterruptedRowsAndPreservesReadyFiles() throws Exception {
+        UserAccount owner = user("reconcile@example.com");
+        byte[] bytes = {1, 3, 5};
+        FileResponse keep = fileService.upload(owner.id(), null,
+                new MockMultipartFile("file", "keep.bin", null, bytes));
+        FileResponse removed = fileService.upload(owner.id(), null,
+                new MockMultipartFile("file", "deleting.bin", null, bytes));
+        FileRecord deleting = fileRepository.markDeleting(removed.id(), owner.id()).orElseThrow();
+        assertEquals("deleting", deleting.status());
+        assertNull(deleting.currentVersionId());
+
+        UUID abandonedId = UUID.randomUUID();
+        UUID abandonedKey = UUID.randomUUID();
+        fileRepository.createPending(new FileRecord(abandonedId, owner.id(), null, "abandoned.bin",
+                abandonedKey, 0, "application/octet-stream", null, "pending", null, null, null));
+        jdbc.update("update files set created_at = now() - interval '2 hours' where id = ?", abandonedId);
+        UUID pendingRevision = UUID.randomUUID();
+        UUID pendingKey = UUID.randomUUID();
+        versionRepository.createPending(new FileVersionRecord(pendingRevision, keep.id(), 2, owner.id(),
+                null, pendingKey, 0, null, null, "pending"));
+        jdbc.update("update file_versions set created_at = now() - interval '2 hours' where id = ?", pendingRevision);
+        Files.write(STORAGE_ROOT.resolve(abandonedKey.toString()), bytes);
+        Files.write(STORAGE_ROOT.resolve(pendingKey.toString()), bytes);
+
+        assertEquals(2, fileRepository.findNonReady().size());
+        assertEquals(List.of(keep), fileService.list(owner.id(), null));
+        reconciliation.run(null);
+
+        assertTrue(fileRepository.findNonReady().isEmpty());
+        assertFalse(versionRepository.existsById(pendingRevision));
+        assertEquals(1, storageKeys().size());
+        assertEquals(List.of(keep), fileService.list(owner.id(), null));
+        assertEquals(sha256(bytes), fileService.get(keep.id(), owner.id()).sha256());
+        assertArrayEquals(bytes, download(keep.id(), owner.id()));
     }
 
     private UserAccount user(String email) {

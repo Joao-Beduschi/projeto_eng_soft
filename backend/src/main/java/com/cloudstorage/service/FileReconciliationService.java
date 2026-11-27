@@ -6,7 +6,6 @@ import com.cloudstorage.repository.FileRepository;
 import com.cloudstorage.repository.FileVersionRepository;
 import java.io.IOException;
 import java.time.Instant;
-import java.time.OffsetDateTime;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.UUID;
@@ -53,8 +52,7 @@ public class FileReconciliationService implements ApplicationRunner {
                 }
             }
 
-            for (FileVersionRecord pending : versions.findStalePending(
-                    OffsetDateTime.ofInstant(cutoffInstant, java.time.ZoneOffset.UTC))) {
+            for (FileVersionRecord pending : versions.findStalePending(cutoffInstant)) {
                 try {
                     storage.delete(pending.storageKey());
                     versions.deletePending(pending.id());

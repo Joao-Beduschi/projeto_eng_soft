@@ -5,6 +5,7 @@ import com.cloudstorage.dto.FolderResponse;
 import com.cloudstorage.exception.ApiException;
 import com.cloudstorage.model.FolderRecord;
 import com.cloudstorage.repository.FolderRepository;
+import com.cloudstorage.repository.UserRepository;
 import com.cloudstorage.validation.NameValidator;
 import java.util.List;
 import java.util.UUID;
@@ -17,15 +18,17 @@ public class FolderService {
     private final FolderRepository folders;
 
     private final FileService files;
+    private final UserRepository users;
 
-    public FolderService(FolderRepository folders, FileService files) {
+    public FolderService(FolderRepository folders, FileService files, UserRepository users) {
         this.folders = folders;
         this.files = files;
+        this.users = users;
     }
 
     @Transactional
     public FolderResponse create(UUID ownerId, UUID parentId, String requestedName) {
-        folders.lockOwner(ownerId);
+        lockOwner(ownerId);
         if (parentId != null && folders.findOwned(parentId, ownerId).isEmpty()) {
             throw notFound();
         }
@@ -53,7 +56,7 @@ public class FolderService {
     @Transactional
     public FolderResponse patch(UUID id, UUID ownerId, boolean hasName, String requestedName,
                                 boolean hasParentId, UUID parentId) {
-        folders.lockOwner(ownerId);
+        lockOwner(ownerId);
         FolderRecord folder = findOwned(id, ownerId);
         if (!hasName && !hasParentId) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "empty_patch", "At least one supported field is required.");
@@ -61,7 +64,7 @@ public class FolderService {
 
         if (hasName) {
             String name = NameValidator.validate(requestedName, "folder");
-            if (!folders.rename(id, ownerId, name)) {
+            if (folders.rename(id, ownerId, name) != 1) {
                 throw notFound();
             }
         }
@@ -74,7 +77,7 @@ public class FolderService {
                 throw new ApiException(HttpStatus.CONFLICT, "folder_cycle",
                         "A folder cannot be moved inside itself or one of its descendants.");
             }
-            if (!folders.move(id, ownerId, parentId)) {
+            if (folders.move(id, ownerId, parentId) != 1) {
                 throw notFound();
             }
         }
@@ -83,13 +86,9 @@ public class FolderService {
 
     @Transactional
     public void delete(UUID id, UUID ownerId) {
-        folders.lockOwner(ownerId);
+        lockOwner(ownerId);
         findOwned(id, ownerId);
-        if (folders.hasChildrenOrFiles(id, ownerId)) {
-            throw new ApiException(HttpStatus.CONFLICT, "folder_not_empty",
-                    "A folder must be empty before it can be deleted.");
-        }
-        if (!folders.deleteIfEmpty(id, ownerId)) {
+        if (folders.deleteIfEmpty(id, ownerId) != 1) {
             throw new ApiException(HttpStatus.CONFLICT, "folder_not_empty",
                     "A folder must be empty before it can be deleted.");
         }
@@ -98,6 +97,10 @@ public class FolderService {
     public static FolderResponse toResponse(FolderRecord folder) {
         return new FolderResponse(folder.id(), folder.name(), folder.parentId(),
                 folder.createdAt(), folder.updatedAt());
+    }
+
+    private void lockOwner(UUID ownerId) {
+        users.findForUpdate(ownerId).orElseThrow(() -> new IllegalStateException("Authenticated user no longer exists"));
     }
 
     private FolderRecord findOwned(UUID id, UUID ownerId) {
