@@ -133,6 +133,24 @@ Both Java entrypoints compiled with Java 21. The Java client read an existing fo
 
 Task 04 is complete. Later academic corrections remain separate.
 
+## Task 05 — Internationalization
+
+The browser supports **Português (Brasil)** (`pt-BR`) and **English** (`en`). Spring Boot reads the UTF-8 `messages.properties`, `messages_pt_BR.properties`, and `messages_en.properties` bundles. The base bundle is complete Brazilian Portuguese. Host-locale fallback is disabled.
+
+The language links are available on sign-in, registration, and the workspace. They select a language on the current page through `?lang=pt-BR` or `?lang=en`, preserving the current folder and authentication. The interceptor accepts these two values on browser page requests. Unsupported selections leave the preference unchanged. The preference cookie is HttpOnly, SameSite=Lax, and valid for one year. It survives logout and browser restarts while the browser retains it, and uses the same Secure setting as the session cookie. Without a valid cookie, the application uses a supported browser language from `Accept-Language` or falls back to Brazilian Portuguese.
+
+Thymeleaf renders labels, accessibility text, authentication feedback, counts, file sizes, dates, and the document language. JavaScript uses messages from an escaped HTML template for dialogs, confirmation prompts, search feedback, and notifications. With JavaScript enabled, native form controls also display validation messages in the selected application language. Server-side form validation works in both languages with JavaScript disabled.
+
+The REST API keeps its paths, status codes, JSON fields, and machine-readable error codes. Human-readable error messages, including revision errors, use the same locale. API clients can send `Accept-Language: en` to request English. Stored filenames, folder names, revision notes, and bytes retain their original values. The Java client menus remain English. The API has revision operations and the browser has no revision history view.
+
+### Task 05 verification
+
+The Task 04 baseline at `f42d98b` passed 20 tests. The updated JAR built successfully and all 22 tests passed. The added HTTP tests cover Brazilian Portuguese fallback, English selection, cookie precedence, unsupported selections, nested-folder rendering, date and size formatting, persistence across logout, and localized errors with stable status and error codes.
+
+Headless Chrome switched languages on sign-in and inside a nested folder, verified localized dialogs and native validation, and exercised the existing workspace and authentication flows. The Java client retrieved a pre-existing file and uploaded and downloaded a new file with matching bytes. The existing revision retained its SHA-256. These checks used disposable PostgreSQL and storage.
+
+Task 05 is complete.
+
 ## Assumptions recorded for this implementation
 
 - Java 21, Spring Boot 4.1.2, PostgreSQL 15 or newer, Spring Data JPA with Hibernate, and Flyway migrations.

@@ -61,7 +61,7 @@ public class FolderService {
         lockOwner(ownerId);
         FolderRecord folder = findOwned(id, ownerId);
         if (!hasName && !hasParentId) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "empty_patch", "At least one supported field is required.");
+            throw new ApiException(HttpStatus.BAD_REQUEST, "empty_patch");
         }
 
         if (hasName) {
@@ -76,8 +76,7 @@ public class FolderService {
                 throw notFound();
             }
             if (parentId != null && folders.isSameOrDescendant(ownerId, id, parentId)) {
-                throw new ApiException(HttpStatus.CONFLICT, "folder_cycle",
-                        "A folder cannot be moved inside itself or one of its descendants.");
+                throw new ApiException(HttpStatus.CONFLICT, "folder_cycle");
             }
             if (folders.move(id, ownerId, parentId) != 1) {
                 throw notFound();
@@ -91,8 +90,7 @@ public class FolderService {
         lockOwner(ownerId);
         findOwned(id, ownerId);
         if (folders.deleteIfEmpty(id, ownerId) != 1) {
-            throw new ApiException(HttpStatus.CONFLICT, "folder_not_empty",
-                    "A folder must be empty before it can be deleted.");
+            throw new ApiException(HttpStatus.CONFLICT, "folder_not_empty");
         }
     }
 
@@ -110,6 +108,6 @@ public class FolderService {
     }
 
     private ApiException notFound() {
-        return new ApiException(HttpStatus.NOT_FOUND, "folder_not_found", "The requested folder was not found.");
+        return new ApiException(HttpStatus.NOT_FOUND, "folder_not_found");
     }
 }

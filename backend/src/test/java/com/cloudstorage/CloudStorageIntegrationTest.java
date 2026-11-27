@@ -546,7 +546,7 @@ class CloudStorageIntegrationTest {
         String token = formToken(registration.body());
         var bad = send(client, formRequest("/register", "email=invalid&password=short&_csrf=" + token));
         assertEquals(400, bad.statusCode());
-        assertTrue(bad.body().contains("Check the email address"));
+        assertTrue(bad.body().contains("Informe um e-mail válido."));
         var registered = send(client, formRequest("/register", credentials + "&_csrf=" + token));
         assertEquals(302, registered.statusCode());
         assertTrue(registered.headers().firstValue("Location").orElseThrow().endsWith("/files"));
@@ -554,7 +554,7 @@ class CloudStorageIntegrationTest {
         var workspace = send(client, request("/files", "GET", null, null));
         assertEquals(200, workspace.statusCode());
         assertTrue(workspace.body().contains("browser@example.com"));
-        assertTrue(workspace.body().contains("Your account is ready."));
+        assertTrue(workspace.body().contains("Sua conta foi criada."));
         assertEquals(403, send(client, formRequest("/logout", "_csrf=" + token)).statusCode());
         assertEquals(403, send(client, formRequest("/logout", "")).statusCode());
         assertEquals(302, send(client, formRequest("/logout", "_csrf=" + formToken(workspace.body()))).statusCode());
@@ -568,6 +568,86 @@ class CloudStorageIntegrationTest {
         assertEquals(302, send(client, formRequest("/login", credentials + "&_csrf=" + formToken(login.body())))
                 .statusCode());
         assertEquals(200, send(client, request("/api/users/me", "GET", null, null)).statusCode());
+    }
+
+    @Test
+    void languagePreferenceSurvivesNavigationAndLogoutAndLocalizesSecurityErrors() throws Exception {
+        CookieManager cookies = new CookieManager(null, CookiePolicy.ACCEPT_ALL);
+        HttpClient client = HttpClient.newBuilder().cookieHandler(cookies).build();
+        var portuguese = send(client, request("/", "GET", null, null));
+        assertEquals(200, portuguese.statusCode());
+        assertTrue(portuguese.body().contains("lang=\"pt-BR\""));
+        assertTrue(portuguese.body().contains("Entre no seu espaço"));
+
+        var english = send(client, request("/login?lang=en", "GET", null, null));
+        assertTrue(english.body().contains("lang=\"en\""));
+        assertTrue(english.body().contains("Sign in to your space"));
+        assertTrue(english.headers().firstValue("Set-Cookie").orElseThrow().contains("CLOUD_STORAGE_LOCALE=en"));
+        assertTrue(send(client, request("/register?lang=fr-FR", "GET", null, null))
+                .body().contains("Create your account"));
+        assertTrue(send(client, request("/api/files", "GET", null, null))
+                .body().contains("Authentication is required."));
+
+        UserAccount account = user("locale@example.com");
+        FolderResponse folder = folderService.create(account.id(), null, "Pasta & Folder");
+        FileResponse file = fileService.upload(account.id(), folder.id(),
+                new MockMultipartFile("file", "data & dados.bin", null, new byte[1536]));
+        String credentials = "email=locale%40example.com&password="
+                + URLEncoder.encode("a sufficiently long test password", StandardCharsets.UTF_8);
+        var invalid = send(client, formRequest("/login",
+                "email=locale%40example.com&password=wrong&_csrf=" + formToken(english.body())));
+        assertEquals(401, invalid.statusCode());
+        assertTrue(invalid.body().contains("The email or password is incorrect."));
+        assertEquals(302, send(client, formRequest("/login", credentials + "&_csrf=" + formToken(english.body())))
+                .statusCode());
+
+        String folderPath = "/folders/" + folder.id();
+        String englishFolder = send(client, request(folderPath, "GET", null, null)).body();
+        assertTrue(englishFolder.contains("Last updated"));
+        assertTrue(englishFolder.contains("1.5 KB"));
+        assertTrue(englishFolder.contains("Rename data &amp; dados.bin"));
+        var switched = send(client, request(folderPath + "?lang=pt-BR", "GET", null, null));
+        assertEquals(200, switched.statusCode());
+        assertTrue(switched.body().contains("Última atualização"));
+        assertTrue(switched.body().contains("1,5 KB"));
+        assertTrue(switched.body().contains(file.updatedAt().format(java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy"))));
+        assertTrue(switched.body().contains("data &amp; dados.bin"));
+        assertTrue(switched.body().contains("Buscar nesta pasta"));
+        assertTrue(switched.body().contains("Pasta criada."));
+        assertTrue(send(client, request("/files", "GET", null, null)).body().contains("Meus arquivos"));
+        assertEquals(302, send(client, formRequest("/logout", "_csrf=" + formToken(switched.body()))).statusCode());
+        assertTrue(send(client, request("/login", "GET", null, null)).body().contains("Você saiu da sua conta."));
+        var unauthorized = send(client, request("/api/files", "GET", null, null));
+        assertEquals(401, unauthorized.statusCode());
+        assertTrue(unauthorized.body().contains("\"code\":\"unauthorized\""));
+        assertTrue(unauthorized.body().contains("Entre na sua conta para continuar."));
+    }
+
+    @Test
+    void apiErrorsRespectLanguageHeadersAndFallBackFromUnsupportedCookies() throws Exception {
+        HttpClient client = HttpClient.newHttpClient();
+        var english = HttpRequest.newBuilder(URI.create(baseUrl() + "/api/files"))
+                .header("Accept-Language", "fr, en-US;q=0.9").build();
+        assertTrue(send(client, english).body().contains("Authentication is required."));
+
+        var invalidCookie = HttpRequest.newBuilder(URI.create(baseUrl() + "/login"))
+                .header("Cookie", "CLOUD_STORAGE_LOCALE=fr-FR")
+                .header("Accept-Language", "fr-FR").build();
+        assertTrue(send(client, invalidCookie).body().contains("Entre no seu espaço"));
+
+        UserAccount account = user("api-locale@example.com");
+        var authenticated = loginClient(account.email(), "a sufficiently long test password");
+        UUID missing = UUID.randomUUID();
+        var missingFile = send(authenticated.client(), request("/api/files/" + missing, "GET", null, null));
+        assertEquals(404, missingFile.statusCode());
+        assertTrue(missingFile.body().contains("\"code\":\"file_not_found\""));
+        assertTrue(missingFile.body().contains("O arquivo solicitado não foi encontrado."));
+
+        var invalidPatch = send(authenticated.client(), request("/api/files/" + missing, "PATCH",
+                authenticated.csrfToken(), "{\"folderId\":\"invalid\"}"));
+        assertEquals(400, invalidPatch.statusCode());
+        assertTrue(invalidPatch.body().contains("\"code\":\"invalid_patch\""));
+        assertTrue(invalidPatch.body().contains("O campo folderId precisa ser um UUID ou null."));
     }
 
     private HttpRequest formRequest(String path, String body) {

@@ -69,7 +69,7 @@ public class FileVersionService {
     public FileVersionResponse upload(UUID fileId, UUID ownerId, String ifMatch,
                                       MultipartFile upload, String changeMessage) {
         if (upload == null) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "file_required", "A file is required.");
+            throw new ApiException(HttpStatus.BAD_REQUEST, "file_required");
         }
         long size = upload.getSize();
         validateSize(size);
@@ -87,8 +87,7 @@ public class FileVersionService {
         } catch (IOException | RuntimeException exception) {
             abort(reservation, storageCommitted);
             log.warn("File revision upload failed for file id {}", fileId, exception);
-            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "version_upload_failed",
-                    "The file revision could not be stored.");
+            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "version_upload_failed");
         }
     }
 
@@ -114,8 +113,7 @@ public class FileVersionService {
         } catch (IOException | RuntimeException exception) {
             abort(reservation, storageCommitted);
             log.error("Could not restore file {} from version {}", fileId, sourceVersionNumber, exception);
-            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "version_restore_failed",
-                    "The selected revision could not be restored.");
+            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "version_restore_failed");
         }
     }
 
@@ -163,8 +161,7 @@ public class FileVersionService {
                 }
                 validateSize(size);
                 if (current.versionNumber() == Integer.MAX_VALUE) {
-                    throw new ApiException(HttpStatus.CONFLICT, "version_limit_reached",
-                            "No additional version number is available for this file.");
+                    throw new ApiException(HttpStatus.CONFLICT, "version_limit_reached");
                 }
 
                 FileVersionRecord pending = new FileVersionRecord(UUID.randomUUID(), fileId,
@@ -177,8 +174,7 @@ public class FileVersionService {
             if (!DatabaseConstraints.isUniqueViolation(exception, "file_versions_file_id_version_number_key")) {
                 throw exception;
             }
-            throw new ApiException(HttpStatus.CONFLICT, "revision_in_progress",
-                    "Another revision is already being uploaded for this file.");
+            throw new ApiException(HttpStatus.CONFLICT, "revision_in_progress");
         }
     }
 
@@ -237,8 +233,7 @@ public class FileVersionService {
 
     private void validateSize(long size) {
         if (size < 0 || size > maxFileSize) {
-            throw new ApiException(HttpStatus.PAYLOAD_TOO_LARGE, "file_too_large",
-                    "The uploaded file exceeds the configured size limit.");
+            throw new ApiException(HttpStatus.PAYLOAD_TOO_LARGE, "file_too_large");
         }
     }
 
@@ -249,21 +244,18 @@ public class FileVersionService {
         String normalized = message.strip();
         if (normalized.length() > MAX_CHANGE_MESSAGE_LENGTH
                 || normalized.codePoints().anyMatch(Character::isISOControl)) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "invalid_change_message",
-                    "The change message must be at most 1000 characters and contain no control characters.");
+            throw new ApiException(HttpStatus.BAD_REQUEST, "invalid_change_message");
         }
         return normalized;
     }
 
     private int parseIfMatch(UUID fileId, String value) {
         if (value == null || value.isBlank()) {
-            throw new ApiException(HttpStatus.PRECONDITION_REQUIRED, "if_match_required",
-                    "Send the current file ETag in the If-Match header.");
+            throw new ApiException(HttpStatus.PRECONDITION_REQUIRED, "if_match_required");
         }
         String prefix = "\"" + fileId + "-v";
         if (!value.startsWith(prefix) || !value.endsWith("\"") || value.indexOf(',') >= 0) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "invalid_file_etag",
-                    "If-Match must contain the single current file ETag returned by the API.");
+            throw new ApiException(HttpStatus.BAD_REQUEST, "invalid_file_etag");
         }
         try {
             int version = Integer.parseInt(value.substring(prefix.length(), value.length() - 1));
@@ -273,8 +265,7 @@ public class FileVersionService {
         } catch (NumberFormatException ignored) {
             // Return the same safe error for malformed and non-positive tags.
         }
-        throw new ApiException(HttpStatus.BAD_REQUEST, "invalid_file_etag",
-                "If-Match must contain the single current file ETag returned by the API.");
+        throw new ApiException(HttpStatus.BAD_REQUEST, "invalid_file_etag");
     }
 
     public static String etag(UUID fileId, int versionNumber) {
@@ -283,19 +274,16 @@ public class FileVersionService {
 
     private ApiException staleVersion(int currentVersion) {
         return new ApiException(HttpStatus.PRECONDITION_FAILED, "stale_file_version",
-                "The file changed since the supplied ETag. Its current version is " + currentVersion
-                        + "; fetch the current ETag and retry.");
+                "error.stale_file_version", Integer.toString(currentVersion));
     }
 
     private ApiException storageMetadataError(UUID fileId) {
         log.error("Current version metadata is unavailable for file {}", fileId);
-        return new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "version_metadata_unavailable",
-                "The file version metadata is temporarily unavailable.");
+        return new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "version_metadata_unavailable");
     }
 
     private ApiException notFound(String resource) {
-        return new ApiException(HttpStatus.NOT_FOUND, resource + "_not_found",
-                "The requested " + resource.replace('_', ' ') + " was not found.");
+        return new ApiException(HttpStatus.NOT_FOUND, resource + "_not_found");
     }
 
     private FileVersionResponse toResponse(FileVersionRecord version, boolean current) {

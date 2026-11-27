@@ -10,12 +10,12 @@ import org.springframework.http.HttpStatus;
 record ItemPatch(boolean hasName, String name, boolean hasDestination, UUID destination) {
     static ItemPatch parse(Map<String, Object> fields, String destinationField) {
         if (fields == null || fields.isEmpty() || !Set.of("name", destinationField).containsAll(fields.keySet())) {
-            throw invalid("The request contains no supported fields or contains unknown fields.");
+            throw invalid("error.patch.fields");
         }
         boolean hasName = fields.containsKey("name");
         Object name = fields.get("name");
         if (hasName && !(name instanceof String)) {
-            throw invalid("name must be a string.");
+            throw invalid("error.patch.name");
         }
         return new ItemPatch(hasName, (String) name, fields.containsKey(destinationField),
                 parseDestination(fields.get(destinationField), destinationField));
@@ -32,10 +32,10 @@ record ItemPatch(boolean hasName, String name, boolean hasDestination, UUID dest
                 // Invalid strings and non-string values use the same API error.
             }
         }
-        throw invalid(field + " must be a UUID or null.");
+        throw invalid("error.patch.destination", field);
     }
 
-    private static ApiException invalid(String message) {
-        return new ApiException(HttpStatus.BAD_REQUEST, "invalid_patch", message);
+    private static ApiException invalid(String key, Object... arguments) {
+        return new ApiException(HttpStatus.BAD_REQUEST, "invalid_patch", key, arguments);
     }
 }

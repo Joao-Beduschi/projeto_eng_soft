@@ -13,12 +13,19 @@ public final class AuthRequests {
     }
 
     public record RegisterRequest(
-            @NotBlank @Email @Pattern(regexp = EMAIL_PATTERN) @Size(max = 320) String email,
-            @NotBlank @Size(min = 12, max = 128) String password) {
+            @NotBlank(message = "{validation.email.required}")
+            @Email(message = "{validation.email.invalid}")
+            @Pattern(regexp = EMAIL_PATTERN, message = "{validation.email.invalid}")
+            @Size(max = 320, message = "{validation.email.length}") String email,
+            @NotBlank(message = "{validation.password.required}")
+            @Size(min = 12, max = 128, message = "{validation.password.register_length}") String password) {
     }
 
     public record LoginRequest(
-            @NotBlank @Email @Size(max = 320) String email,
-            @NotBlank @Size(max = 128) String password) {
+            @NotBlank(message = "{validation.email.required}")
+            @Email(message = "{validation.email.invalid}")
+            @Size(max = 320, message = "{validation.email.length}") String email,
+            @NotBlank(message = "{validation.password.required}")
+            @Size(max = 128, message = "{validation.password.login_length}") String password) {
     }
 }

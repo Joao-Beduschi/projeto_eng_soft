@@ -58,8 +58,7 @@ public class StorageService {
                               long expectedSize, long maxSize)
             throws IOException {
         if (expectedSize < 0 || expectedSize > maxSize) {
-            throw new ApiException(HttpStatus.PAYLOAD_TOO_LARGE, "file_too_large",
-                    "The uploaded file exceeds the configured size limit.");
+            throw new ApiException(HttpStatus.PAYLOAD_TOO_LARGE, "file_too_large");
         }
 
         reserveSpace(expectedSize);
@@ -85,12 +84,10 @@ public class StorageService {
                         }
                         size += read;
                         if (size > maxSize) {
-                            throw new ApiException(HttpStatus.PAYLOAD_TOO_LARGE, "file_too_large",
-                                    "The uploaded file exceeds the configured size limit.");
+                            throw new ApiException(HttpStatus.PAYLOAD_TOO_LARGE, "file_too_large");
                         }
                         if (size > expectedSize) {
-                            throw new ApiException(HttpStatus.BAD_REQUEST, "upload_size_mismatch",
-                                    "The uploaded content length did not match the request.");
+                            throw new ApiException(HttpStatus.BAD_REQUEST, "upload_size_mismatch");
                         }
                         digest.update(bytes, 0, read);
                         ByteBuffer buffer = ByteBuffer.wrap(bytes, 0, read);
@@ -99,8 +96,7 @@ public class StorageService {
                         }
                     }
                     if (size != expectedSize) {
-                        throw new ApiException(HttpStatus.BAD_REQUEST, "upload_size_mismatch",
-                                "The uploaded content length did not match the request.");
+                        throw new ApiException(HttpStatus.BAD_REQUEST, "upload_size_mismatch");
                     }
                     output.force(true);
                 }
@@ -193,8 +189,7 @@ public class StorageService {
     private synchronized void reserveSpace(long bytes) throws IOException {
         long usableBytes = Files.getFileStore(root).getUsableSpace();
         if (bytes > usableBytes - reservedBytes) {
-            throw new ApiException(HttpStatus.INSUFFICIENT_STORAGE, "insufficient_storage",
-                    "There is not enough free storage space to accept this file.");
+            throw new ApiException(HttpStatus.INSUFFICIENT_STORAGE, "insufficient_storage");
         }
         reservedBytes += bytes;
     }

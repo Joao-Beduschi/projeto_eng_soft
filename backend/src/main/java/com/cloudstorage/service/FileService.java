@@ -56,7 +56,7 @@ public class FileService {
 
     public FileResponse upload(UUID ownerId, UUID folderId, MultipartFile upload) {
         if (upload == null) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "file_required", "A file is required.");
+            throw new ApiException(HttpStatus.BAD_REQUEST, "file_required");
         }
         String originalName = NameValidator.validate(upload.getOriginalFilename(), "file");
         long expectedSize = upload.getSize();
@@ -104,8 +104,7 @@ public class FileService {
                 cleanupFailedUpload(id, ownerId, versionId, storageKey, storageCommitted);
             }
             log.warn("File upload failed for metadata id {}", id, exception);
-            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "upload_failed",
-                    "The file could not be stored.");
+            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "upload_failed");
         }
     }
 
@@ -127,8 +126,7 @@ public class FileService {
             return new DownloadFile(toResponse(file), file.storageKey());
         } catch (IOException exception) {
             log.error("Stored object is unavailable for file metadata id {}", id, exception);
-            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "stored_file_unavailable",
-                    "The stored file is temporarily unavailable.");
+            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "stored_file_unavailable");
         }
     }
 
@@ -148,13 +146,11 @@ public class FileService {
             }
         } catch (IOException exception) {
             log.error("Could not remove stored object for file metadata id {}", id, exception);
-            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "delete_failed",
-                    "The file could not be deleted right now. Cleanup will be retried.");
+            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "delete_failed");
         }
         versions.deleteAllForFile(id);
         if (files.deleteWithStatus(id, "deleting") != 1) {
-            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "delete_incomplete",
-                    "The file was removed but its metadata cleanup will be retried.");
+            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "delete_incomplete");
         }
     }
 
@@ -163,7 +159,7 @@ public class FileService {
                               boolean hasFolderId, UUID folderId) {
         findReady(id, ownerId);
         if (!hasName && !hasFolderId) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "empty_patch", "At least one supported field is required.");
+            throw new ApiException(HttpStatus.BAD_REQUEST, "empty_patch");
         }
         if (hasName) {
             String name = NameValidator.validate(requestedName, "file");
@@ -219,12 +215,11 @@ public class FileService {
     }
 
     private ApiException tooLarge() {
-        return new ApiException(HttpStatus.PAYLOAD_TOO_LARGE, "file_too_large",
-                "The uploaded file exceeds the configured size limit.");
+        return new ApiException(HttpStatus.PAYLOAD_TOO_LARGE, "file_too_large");
     }
 
     private ApiException notFound(String resource) {
-        return new ApiException(HttpStatus.NOT_FOUND, resource + "_not_found", "The requested " + resource + " was not found.");
+        return new ApiException(HttpStatus.NOT_FOUND, resource + "_not_found");
     }
 
     public record DownloadFile(FileResponse metadata, UUID storageKey) {

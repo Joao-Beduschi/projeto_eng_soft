@@ -63,6 +63,10 @@ See the [Task 03 mapping, transaction, and verification record](backend/README.m
 
 Task 04 standardizes the existing constructor injection with explicit `@Autowired` on Spring-managed constructors that receive dependencies. `SessionService` now receives the logout handler from `SecurityConfig`. Spring Data still creates the JPA repositories, and the controller, service, and transaction boundaries are unchanged. See the [dependency diagram and verification record](backend/README.md#task-04--spring-dependency-injection).
 
+## 0.6 Task 05 — Internationalization
+
+Task 05 is complete. The browser supports Brazilian Portuguese and English from shared UTF-8 Spring message bundles. The language cookie persists across navigation and logout. Thymeleaf and JavaScript share the selected language, and REST error text follows the resolved locale while status and error codes stay stable. See the [locale behavior and verification record](backend/README.md#task-05--internationalization).
+
 ## 1. Original artifacts and provenance
 
 | Source | What it contains | Status |
@@ -749,7 +753,7 @@ TEST STATUS: local P0 and P2 checks passed; public deployment/tunnel and
               backup/restore validation remain outstanding.
 HISTORICAL TCP NOTES: Sections 3–7 and Appendices A/B describe pre-integration
                       code and its old line protocol, not current root sources.
-NEXT ACADEMIC TASK: Task 05, internationalization.
+NEXT ACADEMIC TASK: Task 06, password recovery.
 DEPLOYMENT FOLLOW-UP: Ubuntu host, HTTPS/tunnel/access, and backup/restore
                       validation are still pending.
 ```

@@ -45,8 +45,7 @@ public class SessionService {
             authentication = authenticationManager.authenticate(
                     UsernamePasswordAuthenticationToken.unauthenticated(email, password));
         } catch (AuthenticationException exception) {
-            throw new ApiException(HttpStatus.UNAUTHORIZED, "invalid_credentials",
-                    "The email or password is incorrect.");
+            throw new ApiException(HttpStatus.UNAUTHORIZED, "invalid_credentials");
         }
 
         if (servletRequest.getSession(false) != null) {

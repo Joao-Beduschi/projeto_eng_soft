@@ -4,31 +4,44 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.time.Instant;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.MessageSource;
 import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.access.AccessDeniedHandler;
 import org.springframework.stereotype.Component;
+import org.springframework.web.servlet.LocaleResolver;
 
 @Component
 public class ApiSecurityErrors {
+    private final MessageSource messages;
+    private final LocaleResolver localeResolver;
+
+    @Autowired
+    public ApiSecurityErrors(MessageSource messages, LocaleResolver localeResolver) {
+        this.messages = messages;
+        this.localeResolver = localeResolver;
+    }
+
     public AuthenticationEntryPoint authenticationEntryPoint() {
         return (request, response, exception) -> write(request, response, 401,
-                "unauthorized", "Authentication is required.");
+                "unauthorized");
     }
 
     public AccessDeniedHandler accessDeniedHandler() {
         return (request, response, exception) -> write(request, response, 403,
-                "forbidden", "The request is not allowed.");
+                "forbidden");
     }
 
     private void write(HttpServletRequest request, HttpServletResponse response,
-                       int status, String code, String message) throws IOException {
+                       int status, String code) throws IOException {
+        String message = messages.getMessage("error." + code, null, localeResolver.resolveLocale(request));
         response.setStatus(status);
         response.setContentType("application/json");
         response.setCharacterEncoding("UTF-8");
         response.getWriter().write("{\"timestamp\":\"" + Instant.now()
                 + "\",\"status\":" + status
                 + ",\"code\":\"" + code
-                + "\",\"message\":\"" + message
+                + "\",\"message\":\"" + escapeJson(message)
                 + "\",\"path\":\"" + escapeJson(request.getRequestURI()) + "\"}");
     }
 

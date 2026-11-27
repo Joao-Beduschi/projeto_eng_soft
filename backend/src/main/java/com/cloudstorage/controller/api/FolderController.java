@@ -74,7 +74,8 @@ public class FolderController {
     }
 
     public record CreateFolderRequest(
-            @NotBlank @Size(max = 255) String name,
+            @NotBlank(message = "{validation.folder.required}")
+            @Size(max = 255, message = "{validation.name.length}") String name,
             UUID parentId) {
     }
 }

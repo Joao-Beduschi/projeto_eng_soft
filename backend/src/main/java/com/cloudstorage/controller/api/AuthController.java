@@ -73,7 +73,7 @@ public class AuthController {
         if (principal instanceof UserPrincipal user) {
             return user;
         }
-        throw new ApiException(HttpStatus.UNAUTHORIZED, "invalid_session", "The session is not valid.");
+        throw new ApiException(HttpStatus.UNAUTHORIZED, "invalid_session");
     }
 
     public record CsrfResponse(String headerName, String parameterName, String token) {

@@ -2,6 +2,15 @@ const $ = (selector) => document.querySelector(selector);
 const appView = $("#app-view");
 const apiBase = appView.dataset.apiBase;
 const loginUrl = appView.dataset.loginUrl;
+const locale = document.documentElement.lang;
+const numbers = new Intl.NumberFormat(locale);
+const messages = new Map(
+  Array.from($("#localized-messages").content.children, (entry) => [entry.dataset.key, entry.textContent]),
+);
+
+function message(key, ...values) {
+  return messages.get(key).replace(/\{(\d+)\}/g, (_, index) => String(values[index]));
+}
 const state = {
   csrfToken: null,
   currentFolderId: appView.dataset.folderId || null,
@@ -46,7 +55,7 @@ async function fetchCsrf() {
   });
   const result = await response.json().catch(() => null);
   if (!response.ok || !result?.token) {
-    throw new ApiError(result?.message || "Could not start a secure session.", response.status);
+    throw new ApiError(result?.message || message("error.secure_session"), response.status);
   }
   state.csrfToken = result.token;
 }
@@ -94,7 +103,7 @@ async function api(path, options = {}) {
       window.location.assign(loginUrl);
     }
     throw new ApiError(
-      payload?.message || (typeof payload === "string" ? payload : "The request could not be completed."),
+      payload?.message || message("error.request_failed"),
       response.status,
       payload?.code,
     );
@@ -109,7 +118,7 @@ async function refreshCurrentFolder() {
     return;
   }
   if (!response.ok) {
-    throw new Error("Could not refresh this folder.");
+    throw new ApiError(message("error.refresh"), response.status);
   }
   const rendered = new DOMParser().parseFromString(await response.text(), "text/html");
   if (!rendered.querySelector("#app-view")) {
@@ -123,11 +132,11 @@ async function refreshCurrentFolder() {
 }
 
 function filterContents() {
-  const search = $("#search-input").value.trim().toLocaleLowerCase();
+  const search = $("#search-input").value.trim().toLocaleLowerCase(locale);
   const countMatches = (container) => {
     let count = 0;
     for (const item of $(container).children) {
-      item.hidden = !item.dataset.itemName.toLocaleLowerCase().includes(search);
+      item.hidden = !item.dataset.itemName.toLocaleLowerCase(locale).includes(search);
       if (!item.hidden) count++;
     }
     return count;
@@ -135,16 +144,16 @@ function filterContents() {
   const folders = countMatches("#folder-grid");
   const files = countMatches("#file-table-body");
   const count = folders + files;
-  $("#folder-count").textContent = folders;
-  $("#file-count").textContent = files;
-  $("#contents-count").textContent = `${count} ${count === 1 ? "item" : "items"}`;
-  $("#folders-section-count").textContent = folders;
-  $("#files-section-count").textContent = files;
+  $("#folder-count").textContent = numbers.format(folders);
+  $("#file-count").textContent = numbers.format(files);
+  $("#contents-count").textContent = message(count === 1 ? "workspace.item.count" : "workspace.items.count", numbers.format(count));
+  $("#folders-section-count").textContent = numbers.format(folders);
+  $("#files-section-count").textContent = numbers.format(files);
   $("#folders-section").hidden = folders === 0;
   $("#files-section").hidden = files === 0;
   $("#empty-state").hidden = count !== 0;
-  $("#empty-state h3").textContent = search ? "No matching items" : emptyTitle;
-  $("#empty-state p").textContent = search ? "Try another name or clear the search." : emptyMessage;
+  $("#empty-state h3").textContent = search ? message("workspace.search.empty") : emptyTitle;
+  $("#empty-state p").textContent = search ? message("workspace.search.retry") : emptyMessage;
 }
 
 function itemName(container, id) {
@@ -168,7 +177,7 @@ async function getAllFolders() {
 }
 
 function folderOptions(folders, selectedId = null, excluded = new Set()) {
-  const options = [{ value: "", label: "My files (root)" }];
+  const options = [{ value: "", label: message("workspace.root_option") }];
   for (const folder of folders) {
     if (excluded.has(folder.id)) continue;
     options.push({
@@ -197,7 +206,7 @@ function descendantsOf(folderId, folders) {
   return excluded;
 }
 
-function openActionDialog({ title, submitText = "Save changes", fields }) {
+function openActionDialog({ title, submitText = message("button.save"), fields }) {
   $("#dialog-title").textContent = title;
   $("#dialog-submit").textContent = submitText;
   dialogFields.replaceChildren();
@@ -223,8 +232,14 @@ function openActionDialog({ title, submitText = "Save changes", fields }) {
       control = document.createElement("input");
       control.type = field.type || "text";
       control.placeholder = field.placeholder || "";
-      if (field.maxLength) control.maxLength = field.maxLength;
-      if (field.required !== false) control.required = true;
+      if (field.maxLength) {
+        control.maxLength = field.maxLength;
+        control.dataset.validationLength = message("validation.name.length");
+      }
+      if (field.required !== false) {
+        control.required = true;
+        if (field.requiredMessage) control.dataset.validationRequired = message(field.requiredMessage);
+      }
       if (field.value != null) control.value = field.value;
     }
     control.name = field.name;
@@ -266,13 +281,13 @@ actionDialog.addEventListener("cancel", (event) => {
 async function createFolder() {
   const folders = await getAllFolders();
   const values = await openActionDialog({
-    title: "Create a folder",
-    submitText: "Create folder",
+    title: message("folders.create_title"),
+    submitText: message("folders.create"),
     fields: [
-      { name: "name", label: "Folder name", placeholder: "e.g. Project files", maxLength: 255 },
+      { name: "name", label: message("folders.dialog.name"), requiredMessage: "validation.folder.required", placeholder: message("folders.dialog.example"), maxLength: 255 },
       {
         name: "parentId",
-        label: "Create inside",
+        label: message("folders.create_inside"),
         type: "select",
         options: folderOptions(folders, state.currentFolderId),
       },
@@ -283,7 +298,7 @@ async function createFolder() {
     method: "POST",
     body: { name: values.name, parentId: values.parentId || null },
   });
-  showToast("Folder created.");
+  showToast(message("success.folder_created"));
   await refreshCurrentFolder();
 }
 
@@ -291,16 +306,16 @@ async function renameFolder(folderId) {
   const name = itemName("#folder-grid", folderId);
   if (!name) return;
   const values = await openActionDialog({
-    title: "Rename folder",
-    submitText: "Save name",
-    fields: [{ name: "name", label: "Folder name", value: name, maxLength: 255 }],
+    title: message("folders.rename"),
+    submitText: message("button.save_name"),
+    fields: [{ name: "name", label: message("folders.dialog.name"), requiredMessage: "validation.folder.required", value: name, maxLength: 255 }],
   });
   if (!values) return;
   await api(`/folders/${encodeURIComponent(folderId)}`, {
     method: "PATCH",
     body: { name: values.name },
   });
-  showToast("Folder renamed.");
+  showToast(message("success.folder_renamed"));
   await refreshCurrentFolder();
 }
 
@@ -310,11 +325,11 @@ async function moveFolder(folderId) {
   if (!folder) return;
   const excluded = descendantsOf(folderId, folders);
   const values = await openActionDialog({
-    title: "Move folder",
-    submitText: "Move folder",
+    title: message("folders.move"),
+    submitText: message("folders.move"),
     fields: [{
       name: "parentId",
-      label: "New parent folder",
+      label: message("folders.parent"),
       type: "select",
       options: folderOptions(folders, folder.parentId, excluded),
     }],
@@ -324,15 +339,15 @@ async function moveFolder(folderId) {
     method: "PATCH",
     body: { parentId: values.parentId || null },
   });
-  showToast("Folder moved.");
+  showToast(message("success.folder_moved"));
   await refreshCurrentFolder();
 }
 
 async function deleteFolder(folderId) {
   const name = itemName("#folder-grid", folderId);
-  if (!name || !window.confirm(`Delete the folder “${name}”? It must be empty.`)) return;
+  if (!name || !window.confirm(message("folders.delete.confirm", name))) return;
   await api(`/folders/${encodeURIComponent(folderId)}`, { method: "DELETE" });
-  showToast("Folder deleted.");
+  showToast(message("success.folder_deleted"));
   await refreshCurrentFolder();
 }
 
@@ -340,27 +355,27 @@ async function renameFile(fileId) {
   const name = itemName("#file-table-body", fileId);
   if (!name) return;
   const values = await openActionDialog({
-    title: "Rename file",
-    submitText: "Save name",
-    fields: [{ name: "name", label: "File name", value: name, maxLength: 255 }],
+    title: message("files.rename"),
+    submitText: message("button.save_name"),
+    fields: [{ name: "name", label: message("files.dialog.name"), requiredMessage: "validation.file.required", value: name, maxLength: 255 }],
   });
   if (!values) return;
   await api(`/files/${encodeURIComponent(fileId)}`, {
     method: "PATCH",
     body: { name: values.name },
   });
-  showToast("File renamed.");
+  showToast(message("success.file_renamed"));
   await refreshCurrentFolder();
 }
 
 async function moveFile(fileId) {
   const folders = await getAllFolders();
   const values = await openActionDialog({
-    title: "Move file",
-    submitText: "Move file",
+    title: message("files.move"),
+    submitText: message("files.move"),
     fields: [{
       name: "folderId",
-      label: "Destination folder",
+      label: message("files.destination"),
       type: "select",
       options: folderOptions(folders, state.currentFolderId),
     }],
@@ -370,15 +385,15 @@ async function moveFile(fileId) {
     method: "PATCH",
     body: { folderId: values.folderId || null },
   });
-  showToast("File moved.");
+  showToast(message("success.file_moved"));
   await refreshCurrentFolder();
 }
 
 async function deleteFile(fileId) {
   const name = itemName("#file-table-body", fileId);
-  if (!name || !window.confirm(`Delete “${name}” permanently?`)) return;
+  if (!name || !window.confirm(message("files.delete.confirm", name))) return;
   await api(`/files/${encodeURIComponent(fileId)}`, { method: "DELETE" });
-  showToast("File deleted.");
+  showToast(message("success.file_deleted"));
   await refreshCurrentFolder();
 }
 
@@ -387,7 +402,7 @@ async function uploadFiles(files) {
   if (!selected.length) return;
   for (const file of selected) {
     if (file.size > 100 * 1024 * 1024) {
-      showToast(`${file.name} is larger than the 100 MB upload limit.`, "error");
+      showToast(message("files.upload.too_large", file.name), "error");
       continue;
     }
     try {
@@ -395,21 +410,25 @@ async function uploadFiles(files) {
       form.append("file", file, file.name);
       if (state.currentFolderId) form.append("folderId", state.currentFolderId);
       await api("/files", { method: "POST", body: form });
-      showToast(`${file.name} uploaded.`);
+      showToast(message("success.file_uploaded", file.name));
     } catch (error) {
-      showToast(`${file.name}: ${error.message || "upload failed"}`, "error");
+      showToast(message("error.upload_file", file.name, actionErrorMessage(error)), "error");
     }
   }
   await refreshCurrentFolder();
 }
 
+function actionErrorMessage(error) {
+  if (error instanceof ApiError) {
+    return error.status === 409 && error.code === "folder_not_empty"
+      ? message("folders.delete.nonempty")
+      : error.message;
+  }
+  return message("error.request_failed");
+}
+
 function handleActionError(error) {
-  const message = error instanceof ApiError
-    ? error.status === 409 && error.code === "folder_not_empty"
-      ? "This folder contains items. Move or delete them before deleting the folder."
-      : error.message
-    : error?.message || "Something went wrong.";
-  showToast(message, "error");
+  showToast(actionErrorMessage(error), "error");
 }
 
 function bindEvents() {

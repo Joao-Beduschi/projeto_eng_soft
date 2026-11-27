@@ -31,7 +31,6 @@ public final class NameValidator {
     private static ApiException invalid(String kind) {
         return new ApiException(
                 HttpStatus.BAD_REQUEST,
-                "invalid_" + kind + "_name",
-                "The " + kind + " name is invalid.");
+                "invalid_" + kind + "_name");
     }
 }

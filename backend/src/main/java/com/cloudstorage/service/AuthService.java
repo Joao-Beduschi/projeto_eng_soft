@@ -35,8 +35,7 @@ public class AuthService {
             if (!DatabaseConstraints.isUniqueViolation(exception, "users_email_unique")) {
                 throw exception;
             }
-            throw new ApiException(HttpStatus.CONFLICT, "email_already_registered",
-                    "An account with this email already exists.");
+            throw new ApiException(HttpStatus.CONFLICT, "email_already_registered");
         }
     }
 
@@ -49,7 +48,7 @@ public class AuthService {
     public UserResponse accountDetails(UUID id) {
         return users.findAccount(id)
                 .map(UserResponse::from)
-                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "user_not_found", "User not found."));
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "user_not_found"));
     }
 
     public static String normalizeEmail(String email) {

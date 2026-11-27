@@ -12,12 +12,14 @@ import com.cloudstorage.service.FolderService;
 import com.cloudstorage.service.SessionService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Validator;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.MessageSource;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.stereotype.Controller;
@@ -35,15 +37,17 @@ public class HomeController {
     private final FolderService folders;
     private final FileService files;
     private final Validator validator;
+    private final MessageSource messages;
 
     @Autowired
     public HomeController(AuthService accounts, SessionService sessions, FolderService folders,
-                          FileService files, Validator validator) {
+                          FileService files, Validator validator, MessageSource messages) {
         this.accounts = accounts;
         this.sessions = sessions;
         this.folders = folders;
         this.files = files;
         this.validator = validator;
+        this.messages = messages;
     }
 
     @GetMapping("/")
@@ -77,11 +81,11 @@ public class HomeController {
         boolean registering = request.getRequestURI().equals(request.getContextPath() + "/register");
         email = email.strip();
         Object credentials = registering ? new RegisterRequest(email, password) : new LoginRequest(email, password);
-        if (!validator.validate(credentials).isEmpty()) {
+        List<String> errors = validator.validate(credentials).stream()
+                .map(ConstraintViolation::getMessage).distinct().sorted().toList();
+        if (!errors.isEmpty()) {
             response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
-            return authError(model, registering, email, registering
-                    ? "The request is invalid or incomplete. Check the email address and use a password from 12 to 128 characters."
-                    : "The request is invalid or incomplete.");
+            return authError(model, registering, email, errors);
         }
         try {
             if (registering) {
@@ -90,9 +94,9 @@ public class HomeController {
             sessions.login(email, password, request, response);
         } catch (ApiException exception) {
             response.setStatus(exception.status().value());
-            return authError(model, registering, email, exception.getMessage());
+            return authError(model, registering, email, List.of(exception.resolveMessage(messages)));
         }
-        redirect.addFlashAttribute("notice", registering ? "Your account is ready." : "Welcome back.");
+        redirect.addFlashAttribute("notice", registering ? "success.account_created" : "success.signed_in");
         return "redirect:/files";
     }
 
@@ -100,7 +104,7 @@ public class HomeController {
     public String logout(HttpServletRequest request, HttpServletResponse response,
                          Authentication authentication, RedirectAttributes redirect) {
         sessions.logout(request, response, authentication);
-        redirect.addFlashAttribute("notice", "You’ve been signed out.");
+        redirect.addFlashAttribute("notice", "success.signed_out");
         return "redirect:/login";
     }
 
@@ -127,10 +131,10 @@ public class HomeController {
         return "index";
     }
 
-    private String authError(Model model, boolean registering, String email, String message) {
+    private String authError(Model model, boolean registering, String email, List<String> errors) {
         model.addAttribute("registering", registering);
         model.addAttribute("email", email);
-        model.addAttribute("formError", message);
+        model.addAttribute("formErrors", errors);
         return "index";
     }
 }
